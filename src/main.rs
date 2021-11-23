@@ -1,10 +1,5 @@
-use std::borrow::Borrow;
-use pcap::Device;
-use etherparse::SlicedPacket;
 use std::fs::File;
-use std::io::Read;
-use std::net::IpAddr;
-use pcap_file::pcap::{PcapReader, PcapParser, Packet};
+use pcap_file::pcap::{PcapReader, Packet};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, EtherType};
 use pnet::packet::Packet as pnet_packet;
 use pnet::packet::ipv4::Ipv4Packet;
@@ -12,9 +7,30 @@ use pnet::packet::ipv6::Ipv6Packet;
 use pnet::packet::udp::UdpPacket;
 use pnet::packet::tcp::TcpPacket;
 use pnet::packet::ip::IpNextHeaderProtocol;
-use pnet::packet::PrimitiveValues;
 use chrono::{DateTime, Utc};
 use std::time::{UNIX_EPOCH, Duration};
+use structopt::StructOpt;
+use std::net;
+
+#[derive(StructOpt)]
+struct Cli {
+    #[structopt(help = "PCAP file to parse", short = "f", long = "file")]
+    pcap_file: std::path::PathBuf,
+
+    #[structopt(help = "Output parsed packets to screen", short = "p", long = "print")]
+    output: bool,
+
+    #[structopt(help = "IP to filter on", short = "i", long = "ip")]
+    ip: Option<std::net::IpAddr>,
+
+}
+
+struct PacketFilter {
+    src_ip: std::net::IpAddr,
+    dest_ip: std::net::IpAddr,
+    src_port: i8,
+    dest_port: i8,
+}
 
 fn packet_time(pcap: Packet) -> (String, Packet)  {
     let full_time = pcap.header.ts_sec.to_string() + &*pcap.header.ts_nsec.to_string();
@@ -50,10 +66,16 @@ fn tcp_flags(encoded_flags: u16) -> String {
     return format!("{}", flags);
 }
 
-fn print_packet(pcap: Packet) {
+fn filter(packet: Packet, query: String) {
+
+}
+
+fn print_packet(pcap: Packet, out: bool) {
     //Combine seconds and nanoseconds from packet to get full timestamp and print time to screen
+    let mut print_output = "".to_string();
     let time_parse = packet_time(pcap);
-    print!("{} ", time_parse.0);
+    print_output.push_str(&time_parse.0);
+    //print!("{} ", print_output);
     let pcap = time_parse.1;
 
     let ethernet_packet = EthernetPacket::new(&pcap.data).unwrap();
@@ -61,70 +83,62 @@ fn print_packet(pcap: Packet) {
 
     match ethernet_packet.get_ethertype() {
         EtherTypes::Ipv4 => {
-            print!("IP ");
+            print_output.push_str(" IP ");
             let v4_packet = Ipv4Packet::new(ethernet_packet.payload()).unwrap();
             match v4_packet.get_next_level_protocol() {
                 IpNextHeaderProtocol(17) => {
                     let udp_packet = UdpPacket::new(v4_packet.payload()).unwrap();
-                    println!("{}:{} > {}:{}: udp {}", v4_packet.get_source(), udp_packet.get_source(), v4_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length());
+                    print_output.push_str(&format!("{}:{} > {}:{}: udp {}", v4_packet.get_source(), udp_packet.get_source(), v4_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length()).to_string());
                 }
                 IpNextHeaderProtocol(6) => {
                     let tcp_packet = TcpPacket::new(v4_packet.payload()).unwrap();
                     let flags = tcp_flags(tcp_packet.get_flags());
-                    println!("{}:{} > {}:{}: Flags [{}]", v4_packet.get_source(), tcp_packet.get_source(), v4_packet.get_destination(), tcp_packet.get_destination(), flags);
+                    print_output.push_str(&format!("{}:{} > {}:{}: Flags [{}]", v4_packet.get_source(), tcp_packet.get_source(), v4_packet.get_destination(), tcp_packet.get_destination(), flags));
                 }
-                _ => println!("Unknown Transport Type: {:?}", v4_packet.get_next_level_protocol()),
+                _ => print_output.push_str(&format!("Unknown Transport Type: {:?}", v4_packet.get_next_level_protocol())),
             }
 
         }
         EtherTypes::Ipv6 => {
-            print!("IP6 ");
+            print_output.push_str(" IP6 ");
             let v6_packet = Ipv6Packet::new(ethernet_packet.payload()).unwrap();
             match v6_packet.get_next_header() {
                 IpNextHeaderProtocol(17) => {
                     let udp_packet = UdpPacket::new(v6_packet.payload()).unwrap();
-                    println!("{}.{} > {}.{}: udp {}", v6_packet.get_source(), udp_packet.get_source(), v6_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length());
+                    print_output.push_str(&format!("{}.{} > {}.{}: udp {}", v6_packet.get_source(), udp_packet.get_source(), v6_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length()));
                 }
                 IpNextHeaderProtocol(6) => {
                     let tcp_packet = TcpPacket::new(v6_packet.payload()).unwrap();
                     let flags = tcp_flags(tcp_packet.get_flags());
-                    println!("{}.{} > {}.{}: Flags [{}]", v6_packet.get_source(), tcp_packet.get_source(), v6_packet.get_destination(), tcp_packet.get_destination(), flags);
+                    print_output.push_str(&format!("{}.{} > {}.{}: Flags [{}]", v6_packet.get_source(), tcp_packet.get_source(), v6_packet.get_destination(), tcp_packet.get_destination(), flags));
                 }
-                _ => println!("Unknown Transport Type: {:?}", v6_packet.get_next_header()),
+                _ => print_output.push_str(&format!("Unknown Transport Type: {:?}", v6_packet.get_next_header())),
             }
         }
         EtherTypes::Arp => {
-            println!("ARP: {:?}", ethernet_packet);
+            print_output.push_str(&format!(" ARP: {:?}", ethernet_packet));
         }
         EtherType(39) => {
-            println!("STP: {:?}", ethernet_packet);
+            print_output.push_str(&format!(" STP: {:?}", ethernet_packet));
         }
-        _ => println!("Unknown Type: {:?}", eth_packet),
+        _ => print_output.push_str(&format!(" Unknown Type: {:?}", eth_packet)),
+    }
+    if out {
+        println!("{}", print_output)
     }
 }
 
-fn main() {
-    println!("Hello, world!");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    let file_in = File::open("test.pcap").expect("Error opening file");
-    let pcap_reader = PcapReader::new(file_in).unwrap();
+    let args = Cli::from_args();
+    let file_in = File::open(args.pcap_file)?;
+    let pcap_reader = PcapReader::new(file_in)?;
 
     for pcap in pcap_reader {
         let pcap: Packet = pcap.unwrap();
-        print_packet(pcap);
+        print_packet(pcap, args.output);
     }
+    //println!("{:?}", args.ip.unwrap());
+    Ok(())
 
-    /*let mut cap= Device::lookup().unwrap().open().unwrap();
-    while let Ok(packet) = cap.next() {
-        println!("received packet! {:?}", packet);
-        match SlicedPacket::from_ethernet(&packet) {
-            Err(value) => println!("Err {:?}", value),
-            Ok(value) => {
-                println!("link: {:?}", value.link);
-                println!("vlan: {:?}", value.vlan);
-                println!("ip: {:?}", value.ip);
-                println!("transport: {:?}", value.transport);
-            }
-        }
-    }*/
 }
