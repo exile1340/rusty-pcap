@@ -19,14 +19,23 @@ struct Cli {
     #[structopt(help = "Output parsed packets to screen", short = "p", long = "print")]
     output: bool,
 
-    #[structopt(help = "IP to filter on", short = "ip", long = "ip")]
+    #[structopt(help = "IP to filter on", short = "i", long = "ip")]
     ip: Option<std::net::IpAddr>,
 
-    #[structopt(help = "Source IP to filter on", short = "sip", long = "src_ip")]
+    #[structopt(help = "Source IP to filter on", short = "s", long = "src_ip")]
     src_ip: Option<std::net::IpAddr>,
 
-    #[structopt(help = "Destination IP to filter on", short = "dip", long = "dest_ip")]
+    #[structopt(help = "Destination IP to filter on", short = "d", long = "dest_ip")]
     dest_ip: Option<std::net::IpAddr>,
+
+    #[structopt(help = "Source port to filter on", short = "r", long = "src_port")]
+    src_port: Option<u16>,
+
+    #[structopt(help = "Destination port to filter on", short = "t", long = "dest_port")]
+    dest_port: Option<u16>,
+
+    #[structopt(help = "Port to filter on", short = "u", long = "port")]
+    port: Option<u16>,
 }
 
 fn packet_time(pcap: &Packet) -> String  {
@@ -72,6 +81,19 @@ fn ipv4_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
             return
         }
     }
+
+    if args.src_ip.is_some() {
+        if args.src_ip.unwrap() != v4_packet.get_source() {
+            return
+        }
+    }
+
+    if args.dest_ip.is_some() {
+        if args.dest_ip.unwrap() != v4_packet.get_destination() {
+            return
+        }
+    }
+
     match v4_packet.get_next_level_protocol() {
         IpNextHeaderProtocol(17) => {
             udp_parse(&pcap, v4_packet, &args);
@@ -93,6 +115,18 @@ fn ipv6_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
         }
     }
 
+    if args.src_ip.is_some() {
+        if args.src_ip.unwrap() != v6_packet.get_source() {
+            return
+        }
+    }
+
+    if args.dest_ip.is_some() {
+        if args.dest_ip.unwrap() != v6_packet.get_destination() {
+            return
+        }
+    }
+
     match v6_packet.get_next_header() {
         IpNextHeaderProtocol(17) => {
             udp6_parse(&pcap, v6_packet, args);
@@ -106,6 +140,23 @@ fn ipv6_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
 
 fn udp_parse(pcap: &Packet, v4_packet: Ipv4Packet, args: &Cli) {
     let udp_packet = UdpPacket::new(&v4_packet.payload()).unwrap();
+
+    if args.port.is_some() {
+        if args.port.unwrap() != udp_packet.get_source() || args.port.unwrap() != udp_packet.get_destination() {
+            return
+        }
+    }
+    if args.src_port.is_some() {
+        if args.src_port.unwrap() != udp_packet.get_source() {
+            return
+        }
+    }
+    if args.dest_port.is_some() {
+        if args.dest_port.unwrap() != udp_packet.get_destination() {
+            return
+        }
+    }
+
     if args.output {
         println!("{} IP {}:{} > {}:{}: udp {}", packet_time(&pcap), v4_packet.get_source(), udp_packet.get_source(), v4_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length().to_string());
     }
@@ -113,6 +164,24 @@ fn udp_parse(pcap: &Packet, v4_packet: Ipv4Packet, args: &Cli) {
 
 fn tcp_parse(pcap: &Packet, v4_packet: Ipv4Packet, args: &Cli) {
     let tcp_packet = TcpPacket::new(&v4_packet.payload()).unwrap();
+
+    if args.port.is_some() {
+        if args.port.unwrap() != tcp_packet.get_source() || args.port.unwrap() != tcp_packet.get_destination() {
+            return
+        }
+    }
+    if args.src_port.is_some() {
+        if args.src_port.unwrap() != tcp_packet.get_source() {
+            return
+        }
+    }
+
+    if args.dest_port.is_some() {
+        if args.dest_port.unwrap() != tcp_packet.get_destination() {
+            return
+        }
+    }
+
     if args.output {
         println!("{} IP {}:{} > {}:{}: Flags [{}]", packet_time(&pcap), v4_packet.get_source(), tcp_packet.get_source(), v4_packet.get_destination(), tcp_packet.get_destination(), tcp_flags(tcp_packet.get_flags()));
     }
@@ -120,6 +189,24 @@ fn tcp_parse(pcap: &Packet, v4_packet: Ipv4Packet, args: &Cli) {
 
 fn udp6_parse(pcap: &Packet, v6_packet: Ipv6Packet, args: &Cli) {
     let udp_packet = UdpPacket::new(&v6_packet.payload()).unwrap();
+
+    if args.port.is_some() {
+        if args.port.unwrap() != udp_packet.get_source() || args.port.unwrap() != udp_packet.get_destination() {
+            return
+        }
+    }
+    if args.src_port.is_some() {
+        if args.src_port.unwrap() != udp_packet.get_source() {
+            return
+        }
+    }
+
+    if args.dest_port.is_some() {
+        if args.dest_port.unwrap() != udp_packet.get_destination() {
+            return
+        }
+    }
+
     if args.output {
         println!("{} IP6 {}:{} > {}:{}: udp {}", packet_time(&pcap), v6_packet.get_source(), udp_packet.get_source(), v6_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length().to_string());
     }
@@ -127,6 +214,24 @@ fn udp6_parse(pcap: &Packet, v6_packet: Ipv6Packet, args: &Cli) {
 
 fn tcp6_parse(pcap: &Packet, v6_packet: Ipv6Packet, args: &Cli) {
     let tcp_packet = TcpPacket::new(&v6_packet.payload()).unwrap();
+
+    if args.port.is_some() {
+        if args.port.unwrap() != tcp_packet.get_source() || args.port.unwrap() != tcp_packet.get_destination() {
+            return
+        }
+    }
+    if args.src_port.is_some() {
+        if args.src_port.unwrap() != tcp_packet.get_source() {
+            return
+        }
+    }
+
+    if args.dest_port.is_some() {
+        if args.dest_port.unwrap() != tcp_packet.get_destination() {
+            return
+        }
+    }
+
     if args.output {
         println!("{} IP6 {}:{} > {}:{}: Flags [{}]", packet_time(&pcap), v6_packet.get_source(), tcp_packet.get_source(), v6_packet.get_destination(), tcp_packet.get_destination(), tcp_flags(tcp_packet.get_flags()));
     }
