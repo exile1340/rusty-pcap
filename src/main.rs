@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::fs;
 use pcap_file::pcap::{PcapReader, Packet};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, EtherType};
 use pnet::packet::Packet as pnet_packet;
@@ -10,6 +11,16 @@ use pnet::packet::ip::IpNextHeaderProtocol;
 use chrono::{DateTime, Utc};
 use std::time::{UNIX_EPOCH, Duration};
 use structopt::StructOpt;
+use config_file::FromConfigFile;
+use serde::Deserialize;
+use std::{ffi::OsStr, path::Path};
+use serde_json;
+use std::io::BufReader;
+
+#[derive(Deserialize)]
+struct Config {
+    pcap_directory: String,
+}
 
 #[derive(StructOpt)]
 struct Cli {
@@ -36,6 +47,13 @@ struct Cli {
 
     #[structopt(help = "Port to filter on", short = "u", long = "port")]
     port: Option<u16>,
+}
+
+fn directory(path: &str) {
+    let paths = fs::read_dir(path).unwrap();
+    for item in paths {
+        println!("Name: {:?} {:?}", item.as_ref().unwrap().path(), item.as_ref().unwrap().metadata().unwrap().created());
+    }
 }
 
 fn packet_time(pcap: &Packet) -> String  {
@@ -75,7 +93,7 @@ fn tcp_flags(encoded_flags: u16) -> String {
 fn ipv4_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
     let v4_packet = Ipv4Packet::new(ether_packet.payload()).unwrap();
 
-    // IF IP filter is present, test if the packet  contains that IP, if not return from function
+    // IF IP filter is present, test if the packet contains that IP, if not return from function
     if args.ip.is_some() {
         if args.ip.unwrap() != v4_packet.get_source() && args.ip.unwrap() != v4_packet.get_destination() {
             return
@@ -83,13 +101,13 @@ fn ipv4_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
     }
 
     if args.src_ip.is_some() {
-        if args.src_ip.unwrap() != v4_packet.get_source() {
+        if args.src_ip.unwrap() != v4_packet.get_source() && args.src_ip.unwrap() != v4_packet.get_destination() {
             return
         }
     }
 
     if args.dest_ip.is_some() {
-        if args.dest_ip.unwrap() != v4_packet.get_destination() {
+        if args.dest_ip.unwrap() != v4_packet.get_destination() && args.dest_ip.unwrap() != v4_packet.get_source() {
             return
         }
     }
@@ -116,13 +134,14 @@ fn ipv6_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
     }
 
     if args.src_ip.is_some() {
-        if args.src_ip.unwrap() != v6_packet.get_source() {
+        if args.src_ip.unwrap() != v6_packet.get_source() && args.src_ip.unwrap() != v6_packet.get_destination() {
             return
         }
     }
 
+
     if args.dest_ip.is_some() {
-        if args.dest_ip.unwrap() != v6_packet.get_destination() {
+        if args.dest_ip.unwrap() != v6_packet.get_destination() && args.dest_ip.unwrap() != v6_packet.get_source() {
             return
         }
     }
@@ -265,6 +284,8 @@ fn packet_parse(pcap: Packet, args: &Cli) {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 
+    //Load YAML config file
+
     let args = Cli::from_args();
     let file_in = File::open(&args.pcap_file)?;
     let pcap_reader = PcapReader::new(file_in)?;
@@ -274,6 +295,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         packet_parse(pcap, &args);
     }
 
+    //directory("/home/joe");
+    //println!("{:?}", config);
     Ok(())
 
 }
