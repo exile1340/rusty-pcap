@@ -1,302 +1,88 @@
-use std::fs::File;
+// Import required modules
 use std::fs;
-use pcap_file::pcap::{PcapReader, Packet};
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket, EtherType};
-use pnet::packet::Packet as pnet_packet;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::ip::IpNextHeaderProtocol;
-use chrono::{DateTime, Utc};
-use std::time::{UNIX_EPOCH, Duration};
 use structopt::StructOpt;
-use config_file::FromConfigFile;
-use serde::Deserialize;
-use std::{ffi::OsStr, path::Path};
-use serde_json;
-use std::io::BufReader;
+use std;
+use serde::{Deserialize, Serialize};
+use crate::cli::{Cli, run_cli_search};
+mod cli;
+mod input_validation;
+mod packet_parse;
+mod write_pcap;
+mod api_server;
+mod search_pcap;
+#[macro_use] extern crate rocket;
 
-#[derive(Deserialize)]
-struct Config {
-    pcap_directory: String,
+// Define a configuration struct for server settings
+#[derive(FromForm, Deserialize, Serialize)]
+pub struct Config {
+    log_level: Option<String>,
+    pcap_directory: Option<String>,
+    output_directory: Option<String>,
+    enable_server: bool,
+    search_buffer: Option<String>,
 }
 
-#[derive(StructOpt)]
-struct Cli {
-    #[structopt(help = "PCAP file to parse", short = "f", long = "file")]
-    pcap_file: std::path::PathBuf,
-
-    #[structopt(help = "Output parsed packets to screen", short = "p", long = "print")]
-    output: bool,
-
-    #[structopt(help = "IP to filter on", short = "i", long = "ip")]
-    ip: Option<std::net::IpAddr>,
-
-    #[structopt(help = "Source IP to filter on", short = "s", long = "src_ip")]
-    src_ip: Option<std::net::IpAddr>,
-
-    #[structopt(help = "Destination IP to filter on", short = "d", long = "dest_ip")]
-    dest_ip: Option<std::net::IpAddr>,
-
-    #[structopt(help = "Source port to filter on", short = "r", long = "src_port")]
-    src_port: Option<u16>,
-
-    #[structopt(help = "Destination port to filter on", short = "t", long = "dest_port")]
-    dest_port: Option<u16>,
-
-    #[structopt(help = "Port to filter on", short = "u", long = "port")]
-    port: Option<u16>,
+// Function to read configuration from a file
+fn read_config(config_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
+    let config_contents = fs::read_to_string(config_path)?; // Read the contents of the config file
+    let config: Config = toml::from_str(&config_contents)?; // Parse the contents into a Config struct
+    Ok(config)
 }
 
-fn directory(path: &str) {
-    let paths = fs::read_dir(path).unwrap();
-    for item in paths {
-        println!("Name: {:?} {:?}", item.as_ref().unwrap().path(), item.as_ref().unwrap().metadata().unwrap().created());
-    }
-}
+#[rocket::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-fn packet_time(pcap: &Packet) -> String  {
-    let full_time = pcap.header.ts_sec.to_string() + &*pcap.header.ts_nsec.to_string();
-    let d = UNIX_EPOCH + Duration::from_nanos(full_time.parse::<u64>().unwrap());
-    let datetime = DateTime::<Utc>::from(d);
-    let timestamp_str = datetime.format("%H:%M:%S.%6f").to_string();
-    return timestamp_str;
-}
-
-fn tcp_flags(encoded_flags: u16) -> String {
-    //let flags = format!("{:b}", encoded_flags);
-    let mut flags: String = "".to_string();
-    // Ack Flag
-    if encoded_flags & (1 << 4) > 0 {
-        flags.push_str(".");
-    }
-    // Push Flag
-    if encoded_flags & (1 << 3) > 0 {
-        flags.push_str("P");
-    }
-    // Reset Flag
-    if encoded_flags & (1 << 2) > 0 {
-        flags.push_str("R");
-    }
-    // Syn Flag
-    if encoded_flags & (1 << 1) > 0 {
-        flags.push_str("S");
-    }
-    // Fin flag
-    if encoded_flags & (1 << 0) > 0 {
-        flags.push_str("F");
-    }
-    return format!("{}", flags);
-}
-
-fn ipv4_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
-    let v4_packet = Ipv4Packet::new(ether_packet.payload()).unwrap();
-
-    // IF IP filter is present, test if the packet contains that IP, if not return from function
-    if args.ip.is_some() {
-        if args.ip.unwrap() != v4_packet.get_source() && args.ip.unwrap() != v4_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.src_ip.is_some() {
-        if args.src_ip.unwrap() != v4_packet.get_source() && args.src_ip.unwrap() != v4_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.dest_ip.is_some() {
-        if args.dest_ip.unwrap() != v4_packet.get_destination() && args.dest_ip.unwrap() != v4_packet.get_source() {
-            return
-        }
-    }
-
-    match v4_packet.get_next_level_protocol() {
-        IpNextHeaderProtocol(17) => {
-            udp_parse(&pcap, v4_packet, &args);
-        }
-        IpNextHeaderProtocol(6) => {
-            tcp_parse(&pcap, v4_packet, &args);
-        }
-        _ => return,
-    }
-}
-
-fn ipv6_parse(pcap: &Packet, ether_packet: &EthernetPacket, args: &Cli) {
-    let v6_packet = Ipv6Packet::new(ether_packet.payload()).unwrap();
-
-    // IF IP filter is present, test if the packet  contains that IP, if not return from function
-    if args.ip.is_some() {
-        if args.ip.unwrap() != v6_packet.get_source() && args.ip.unwrap() != v6_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.src_ip.is_some() {
-        if args.src_ip.unwrap() != v6_packet.get_source() && args.src_ip.unwrap() != v6_packet.get_destination() {
-            return
-        }
-    }
-
-
-    if args.dest_ip.is_some() {
-        if args.dest_ip.unwrap() != v6_packet.get_destination() && args.dest_ip.unwrap() != v6_packet.get_source() {
-            return
-        }
-    }
-
-    match v6_packet.get_next_header() {
-        IpNextHeaderProtocol(17) => {
-            udp6_parse(&pcap, v6_packet, args);
-        }
-        IpNextHeaderProtocol(6) => {
-            tcp6_parse(&pcap, v6_packet, args);
-        }
-        _ => return,
-    }
-}
-
-fn udp_parse(pcap: &Packet, v4_packet: Ipv4Packet, args: &Cli) {
-    let udp_packet = UdpPacket::new(&v4_packet.payload()).unwrap();
-
-    if args.port.is_some() {
-        if args.port.unwrap() != udp_packet.get_source() || args.port.unwrap() != udp_packet.get_destination() {
-            return
-        }
-    }
-    if args.src_port.is_some() {
-        if args.src_port.unwrap() != udp_packet.get_source() {
-            return
-        }
-    }
-    if args.dest_port.is_some() {
-        if args.dest_port.unwrap() != udp_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.output {
-        println!("{} IP {}:{} > {}:{}: udp {}", packet_time(&pcap), v4_packet.get_source(), udp_packet.get_source(), v4_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length().to_string());
-    }
-}
-
-fn tcp_parse(pcap: &Packet, v4_packet: Ipv4Packet, args: &Cli) {
-    let tcp_packet = TcpPacket::new(&v4_packet.payload()).unwrap();
-
-    if args.port.is_some() {
-        if args.port.unwrap() != tcp_packet.get_source() || args.port.unwrap() != tcp_packet.get_destination() {
-            return
-        }
-    }
-    if args.src_port.is_some() {
-        if args.src_port.unwrap() != tcp_packet.get_source() {
-            return
-        }
-    }
-
-    if args.dest_port.is_some() {
-        if args.dest_port.unwrap() != tcp_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.output {
-        println!("{} IP {}:{} > {}:{}: Flags [{}]", packet_time(&pcap), v4_packet.get_source(), tcp_packet.get_source(), v4_packet.get_destination(), tcp_packet.get_destination(), tcp_flags(tcp_packet.get_flags()));
-    }
-}
-
-fn udp6_parse(pcap: &Packet, v6_packet: Ipv6Packet, args: &Cli) {
-    let udp_packet = UdpPacket::new(&v6_packet.payload()).unwrap();
-
-    if args.port.is_some() {
-        if args.port.unwrap() != udp_packet.get_source() || args.port.unwrap() != udp_packet.get_destination() {
-            return
-        }
-    }
-    if args.src_port.is_some() {
-        if args.src_port.unwrap() != udp_packet.get_source() {
-            return
-        }
-    }
-
-    if args.dest_port.is_some() {
-        if args.dest_port.unwrap() != udp_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.output {
-        println!("{} IP6 {}:{} > {}:{}: udp {}", packet_time(&pcap), v6_packet.get_source(), udp_packet.get_source(), v6_packet.get_destination(), udp_packet.get_destination(), udp_packet.get_length().to_string());
-    }
-}
-
-fn tcp6_parse(pcap: &Packet, v6_packet: Ipv6Packet, args: &Cli) {
-    let tcp_packet = TcpPacket::new(&v6_packet.payload()).unwrap();
-
-    if args.port.is_some() {
-        if args.port.unwrap() != tcp_packet.get_source() || args.port.unwrap() != tcp_packet.get_destination() {
-            return
-        }
-    }
-    if args.src_port.is_some() {
-        if args.src_port.unwrap() != tcp_packet.get_source() {
-            return
-        }
-    }
-
-    if args.dest_port.is_some() {
-        if args.dest_port.unwrap() != tcp_packet.get_destination() {
-            return
-        }
-    }
-
-    if args.output {
-        println!("{} IP6 {}:{} > {}:{}: Flags [{}]", packet_time(&pcap), v6_packet.get_source(), tcp_packet.get_source(), v6_packet.get_destination(), tcp_packet.get_destination(), tcp_flags(tcp_packet.get_flags()));
-    }
-}
-
-fn packet_parse(pcap: Packet, args: &Cli) {
-    //Combine seconds and nanoseconds from packet to get full timestamp and print time to screen
-    let mut print_output = "".to_string();
-    let time_parse = packet_time(&pcap);
-    print_output.push_str(&time_parse);
-
-    let ethernet_packet = EthernetPacket::new(&pcap.data).unwrap();
-    let eth_packet = ethernet_packet.get_ethertype();
-
-    match ethernet_packet.get_ethertype() {
-        EtherTypes::Ipv4 => {
-            ipv4_parse(&pcap, &ethernet_packet, args);
-        }
-        EtherTypes::Ipv6 => {
-            ipv6_parse(&pcap, &ethernet_packet, args);
-        }
-        EtherTypes::Arp => {
-            print_output.push_str(&format!(" ARP: {:?}", ethernet_packet));
-        }
-        EtherType(39) => {
-            print_output.push_str(&format!(" STP: {:?}", ethernet_packet));
-        }
-        _ => print_output.push_str(&format!(" Unknown Type: {:?}", eth_packet)),
-    }
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-
-    //Load YAML config file
-
+    // Parse command line arguments
     let args = Cli::from_args();
-    let file_in = File::open(&args.pcap_file)?;
-    let pcap_reader = PcapReader::new(file_in)?;
 
-    for pcap in pcap_reader {
-        let pcap: Packet = pcap.unwrap();
-        packet_parse(pcap, &args);
+    // Read the configuration file
+    let mut config = read_config(args.config_file.as_deref().unwrap_or("config.toml"))?;
+
+    // Define a pcap filter based on the command line arguments and config file
+    let pcap_filter = write_pcap::PcapFilter {
+        ip: Some(args.ip.clone()),
+        port: Some(args.port.clone()),
+        src_ip: args.src_ip,
+        src_port: args.src_port,
+        dest_ip: args.dest_ip,
+        dest_port: args.dest_port,
+        timestamp: args.timestamp.clone(),
+        buffer: config.search_buffer.clone(),
+    };
+
+    // Determine log level from command line arguments or configuration file
+    let log_level = args.log_level
+        .clone()
+        .or(config.log_level.clone())
+        .unwrap_or_else(|| "error".to_string());
+
+    // Initialize the logger with the determined log level
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&log_level)).init();
+
+    // Determine if the server should be started
+    let run_server = args.server || config.enable_server;
+    log::info!("Running in {} mode", if run_server { "Server" } else { "CLI" });
+
+    // If no pcap_directory was specified in the config file, try to use the directory specified in the command line arguments
+    // If no directory was specified at all, exit the program with an error
+    if config.pcap_directory.is_none() {
+        config.pcap_directory = match args.pcap_dir.clone() {
+            Some(dir) => Some(dir),
+            None => {
+                log::error!("Pcap directory is not set, update config.toml file or include --pcap-dir at runtime");
+                std::process::exit(1);
+            }
+        };
     }
 
-    //directory("/home/joe");
-    //println!("{:?}", config);
-    Ok(())
+    // If the server is not enabled, run a CLI search
+    // If the server is enabled, start the API server
+    if !run_server {
+        run_cli_search(pcap_filter, args, &config)?;
+    } else {
+        log::info!("Starting API server...");
+        api_server::rocket(config).launch().await?;
+    }
 
+    Ok(())
 }
