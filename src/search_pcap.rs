@@ -77,13 +77,18 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
     let buffer_parsed = parse_duration(&buffer);
     log::info!("Searching Pcap files for a flow at {} with buffer of {} seconds", time, buffer_parsed);
 
+
+
     // Read the directory
     for entry in fs::read_dir(&path)? {
         let entry = entry?;
         let path_buf = entry.path();
 
         // Check if the file is a pcap file 
-        if is_pcap_file(&path_buf) {
+        if path_buf.is_dir() {
+            let nested_output = directory(path_buf, time, buffer)?;
+            matching_files.extend(nested_output);
+        } else if is_pcap_file(&path_buf) {
             log::debug!("{:?} is a pcap file.", &path_buf);
             let file_name_os_str = &path_buf.file_name();
             let path_str = file_name_os_str.and_then(OsStr::to_str);
@@ -128,8 +133,17 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
 // Function to extract a timestamp from a filename
 fn extract_timestamp_from_filename(filename: &Option<&str>) -> Option<i64> {
     filename.and_then(|f| {
+        let parts: Vec<&str> = f.split('.').collect();
+        // Check for the format 'snort.log.<timestamp>.pcap'
+        if parts.len() == 4 && parts[0].starts_with("snort") && parts[1].starts_with("log") && parts[3] == "pcap" {
+            return parts[2].parse::<i64>().ok();
+        }
+        // Check for the format '<timestamp>-<any_other_part>.pcap'
         let parts: Vec<&str> = f.split('-').collect();
-        parts.first().and_then(|p| p.parse::<i64>().ok())
+        if parts.len() >= 2 && parts.last().map_or(false, |ext| ext.ends_with(".pcap")) {
+            return parts.first().and_then(|p| p.parse::<i64>().ok());
+        }
+        None
     })
 }
 

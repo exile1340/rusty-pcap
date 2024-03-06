@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use std::time::UNIX_EPOCH;
 use crate::write_pcap::PcapFilter;
 
-fn packet_time(pcap: &PcapPacket) -> String  {
+fn _packet_time(pcap: &PcapPacket) -> String  {
     let full_time = pcap.timestamp;
     let d = UNIX_EPOCH + full_time;
     let datetime = DateTime::<Utc>::from(d);
@@ -223,7 +223,6 @@ pub fn packet_parse(pcap: &PcapPacket, args: &PcapFilter) -> bool {
         EtherTypes::Ipv4 => ipv4_parse(&ethernet_packet, args),
         EtherTypes::Ipv6 => ipv6_parse(&ethernet_packet, args),
         _ => {
-            log::debug!("{} Unknown Type: {:?}", packet_time(&pcap), eth_packet);
             false
         },
     }
