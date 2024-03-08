@@ -1,9 +1,10 @@
+use lazy_static::lazy_static;
 use rocket::fs::NamedFile;
 use std::path::PathBuf;
 use rocket::response::status::Custom;
 use rocket::http::Status;
 use rocket::response::{self, Responder};
-use rocket::Request;
+use rocket::fairing::{Fairing, Info, Kind};
 use crate::write_pcap::{self, PcapFilter};
 use std::time::Instant;
 use crate::search_pcap;
@@ -11,8 +12,50 @@ use std::fs::File;
 use pcap_file::pcap::PcapReader;
 use crate::packet_parse;
 use crate::Config;
+use std::sync::Mutex;
+use rocket::{Request, Rocket, Build};
+use rocket::request::{self, FromRequest};
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+// Global variable to store the start time of the server
+lazy_static! {
+    static ref START_TIME: Mutex<Instant> = Mutex::new(Instant::now());
+    static ref PCAP_RESPONSE_TIME_TOTAL: AtomicU64 = AtomicU64::new(0);
+    static ref PCAP_REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
+}
+
+// Global variable to track number of requests to the server
+static REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
 struct CustomError(&'static str);
+struct UptimeTracker;
+
+#[rocket::async_trait]
+impl Fairing for UptimeTracker {
+    fn info(&self) -> Info {
+        Info {
+            name: "Uptime Tracker",
+            kind: Kind::Ignite,
+        }
+    }
+
+    async fn on_ignite(&self, rocket: Rocket<Build>) -> rocket::fairing::Result {
+        *START_TIME.lock().unwrap() = Instant::now();
+        Ok(rocket)
+    }
+}
+
+struct RequestCounter;
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for RequestCounter {
+    type Error = ();
+
+    async fn from_request(_request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
+        REQUEST_COUNT.fetch_add(1, Ordering::Acquire);
+        request::Outcome::Success(RequestCounter)
+    }
+}
 
 impl<'r> Responder<'r, 'static> for CustomError {
     fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
@@ -30,14 +73,21 @@ async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile
     let mut pcap_writer = write_pcap::pcap_to_write(&pcap_request, config.output_directory.as_deref());
     // Start timer for how long the pcap search takes
     let start = Instant::now();
-    log::info!("Searching Pcap directory {:?}", &config.pcap_directory);
+    let pcap_directory: Vec<String> = config.pcap_directory.as_ref().unwrap().split(',')
+                                        .map(|s| s.trim().to_string())
+                                        .collect();
+    log::info!("Searching Pcap directory {:?}", &pcap_directory);
     // Set the directory for pcap files as a PathBuf
-    let pcap_directory = PathBuf::from(config.pcap_directory.as_ref().unwrap());
-    let file_list = search_pcap::directory(pcap_directory, &pcap_request.timestamp.clone().unwrap_or_default(), &pcap_request.buffer.as_ref().unwrap_or(&"0".to_string())).unwrap_or_else(|_| {
-        log::error!("Failed to get file list from directory: {:?}", &config.pcap_directory);
-        Vec::new()
-    });
-    log::debug!("Files to search: {:?}", file_list);
+    //let pcap_directory = PathBuf::from(config.pcap_directory.as_ref().unwrap());
+    let mut file_list: Vec<PathBuf> = Vec::new();
+    for dir in pcap_directory {
+        file_list.extend(search_pcap::directory(PathBuf::from(&dir), &pcap_request.timestamp.clone().unwrap_or_default(), &pcap_request.buffer.as_ref().unwrap_or(&"0".to_string())).unwrap_or_else(|_| {
+            log::error!("Failed to get file list from directory: {:?}", &dir);
+            Vec::new()
+        }))
+    };
+    log::info!("{:?} Pcap files to search", file_list.len());
+    log::debug!("Files: {:?}", file_list);
 
     // look at every file 
     for file in file_list {
@@ -81,18 +131,48 @@ fn index() -> &'static str {
 }
 
 #[get("/pcap?<pcap_request..>")]
-async fn pcap(pcap_request: Option<PcapFilter>, config: &rocket::State<Config>) -> Result<NamedFile, Custom<String>> {
-    match pcap_request {
+async fn pcap(pcap_request: Option<PcapFilter>, config: &rocket::State<Config>, _counter: RequestCounter) -> Result<NamedFile, Custom<String>> {
+    let start_time = Instant::now();
+
+    let result = match pcap_request {
         Some(request) => {
             get_pcap(request, config.inner()).await
         }
         None => Err(Custom(Status::BadRequest, format!("Missing parameters: {:?}", pcap_request))),
-    }
+    };
+
+    let response_time = start_time.elapsed().as_millis() as u64;
+    PCAP_RESPONSE_TIME_TOTAL.fetch_add(response_time, Ordering::Relaxed);
+    PCAP_REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+
+    result
+}
+
+#[get("/status")]
+fn status() -> String {
+    let start_time = START_TIME.lock().unwrap();
+    let uptime_seconds = start_time.elapsed().as_secs();
+    let request_count = REQUEST_COUNT.load(Ordering::Relaxed);
+    let pcap_request_count = PCAP_REQUEST_COUNT.load(Ordering::Relaxed);
+    let pcap_response_time_total = PCAP_RESPONSE_TIME_TOTAL.load(Ordering::Relaxed);
+    let average_pcap_response_time = if pcap_request_count > 0 {
+        pcap_response_time_total / pcap_request_count
+    } else {
+        0
+    };
+
+    let days = uptime_seconds / 86_400; // 60 * 60 * 24
+    let hours = (uptime_seconds % 86_400) / 3_600; // (seconds % seconds_per_day) / seconds_per_hour
+    let minutes = (uptime_seconds % 3_600) / 60; // (seconds % seconds_per_hour) / seconds_per_minute
+
+    format!("Server uptime: {} days, {} hours, {} minutes\nTotal PCAPs served since start: {}\nAverage pcap response time: {} ms", days, hours, minutes, request_count, average_pcap_response_time)
 }
 
 pub fn rocket(config: crate::Config) -> rocket::Rocket<rocket::Build> {
     rocket::build()
+        .attach(UptimeTracker)
         .manage(config)
         .mount("/", routes![pcap])
         .mount("/", routes![index])
+        .mount("/", routes![status])
 }

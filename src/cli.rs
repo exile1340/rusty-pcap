@@ -92,11 +92,19 @@ pub fn run_cli_search(filter: PcapFilter, args: Cli,  config: &Config) -> Result
         let start = Instant::now();
         log::info!("Searching Pcap directory {:?}", &config.pcap_directory);
         // Set the directory for pcap files as a PathBuf
-        let pcap_directory = PathBuf::from(&config.pcap_directory.as_ref().unwrap());
-        let file_list = search_pcap::directory(pcap_directory, &timestamp, &config.search_buffer.clone().unwrap());
+        let pcap_directory: Vec<String> = config.pcap_directory.as_ref().unwrap().split(',')
+                                        .map(|s| s.trim().to_string())
+                                        .collect();
+        let mut file_list: Vec<PathBuf> = Vec::new();
+        for dir in pcap_directory {
+            file_list.extend(search_pcap::directory(PathBuf::from(&dir), &timestamp.clone(), &config.search_buffer.as_ref().unwrap_or(&"0".to_string())).unwrap_or_else(|_| {
+                log::error!("Failed to get file list from directory: {:?}", &dir);
+                Vec::new()
+            }))
+        };
         log::debug!("Files to search: {:?}", file_list);
         // look at every file 
-        for file in file_list.unwrap() {
+        for file in file_list {
             let file_name = File::open(file.as_path())?;
             let mut pcap_reader = PcapReader::new(file_name)?;
             while let Some(Ok(packet)) = pcap_reader.next_packet() {

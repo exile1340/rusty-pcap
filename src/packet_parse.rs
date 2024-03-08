@@ -227,3 +227,235 @@ pub fn packet_parse(pcap: &PcapPacket, args: &PcapFilter) -> bool {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pnet::packet::ethernet::{EthernetPacket, MutableEthernetPacket};
+    use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
+    use pnet::packet::udp::MutableUdpPacket;
+    use pnet::packet::Packet;
+    use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
+    use pnet::packet::ip::IpNextHeaderProtocols;
+    use pnet::packet::tcp::MutableTcpPacket;
+    use pnet::packet::ipv6::MutableIpv6Packet;
+
+    fn create_ipv4_udp_packet(
+        src_ip: Ipv4Addr,
+        dest_ip: Ipv4Addr,
+        src_port: u16,
+        dest_port: u16,
+    ) -> Vec<u8> {
+        let mut ethernet_buffer = [0u8; 42]; // Ethernet header (14) + IPv4 header (20) + UDP header (8)
+        let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer).unwrap();
+        ethernet_packet.set_ethertype(EtherTypes::Ipv4);
+    
+        // Increase the buffer size to accommodate both the IPv4 header and UDP header
+        let mut ipv4_udp_buffer = [0u8; 28]; // IPv4 header (20) + UDP header (8)
+        let mut ipv4_packet = MutableIpv4Packet::new(&mut ipv4_udp_buffer).unwrap();
+        ipv4_packet.set_version(4);
+        ipv4_packet.set_header_length(5);
+        ipv4_packet.set_total_length(28);
+        ipv4_packet.set_next_level_protocol(IpNextHeaderProtocols::Udp);
+        ipv4_packet.set_source(src_ip);
+        ipv4_packet.set_destination(dest_ip);
+    
+        let mut udp_buffer = [0u8; 8];
+        let mut udp_packet = MutableUdpPacket::new(&mut udp_buffer).unwrap();
+        udp_packet.set_source(src_port);
+        udp_packet.set_destination(dest_port);
+        udp_packet.set_length(8);
+    
+        // Set the UDP header as the payload of the IPv4 packet
+        ipv4_packet.set_payload(udp_packet.packet());
+    
+        // Set the IPv4 packet (with UDP payload) as the payload of the Ethernet packet
+        ethernet_packet.set_payload(ipv4_packet.packet());
+    
+        ethernet_buffer.to_vec()
+    }
+
+    #[test]
+    fn test_ipv4_parse_with_udp_packet() {
+        let src_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let dest_ip = Ipv4Addr::new(10, 0, 0, 1);
+        let src_port = 12345;
+        let dest_port = 80;
+        let packet_data = create_ipv4_udp_packet(src_ip, dest_ip, src_port, dest_port);
+        let ethernet_packet = EthernetPacket::new(&packet_data).unwrap();
+
+        let filter = PcapFilter {
+            ip: Some(vec![std::net::IpAddr::V4(src_ip), std::net::IpAddr::V4(dest_ip)]),
+            port: Some(vec![src_port, dest_port]),
+            src_ip: Some(std::net::IpAddr::V4(src_ip)),
+            src_port: Some(src_port),
+            dest_ip: Some(std::net::IpAddr::V4(dest_ip)),
+            dest_port: Some(dest_port),
+            timestamp: None,
+            buffer: None,
+        };
+
+        assert!(ipv4_parse(&ethernet_packet, &filter));
+    }
+
+    #[test]
+    fn test_tcp_parse() {
+        let mut ipv4_buffer = [0u8; 40]; // 20 bytes for IPv4 header, 20 bytes for TCP header
+        let mut tcp_buffer = [0u8; 20]; // 20 bytes for TCP header
+
+        let source_ip = Ipv4Addr::new(127, 0, 0, 1);
+        let destination_ip = Ipv4Addr::new(192, 168, 1, 1);
+        let source_port = 8080;
+        let destination_port = 80;
+
+        // Set up the IPv4 packet
+        let mut ipv4_packet = MutableIpv4Packet::new(&mut ipv4_buffer[..]).unwrap();
+        ipv4_packet.set_version(4);
+        ipv4_packet.set_header_length(5);
+        ipv4_packet.set_total_length(40);
+        ipv4_packet.set_source(source_ip);
+        ipv4_packet.set_destination(destination_ip);
+        ipv4_packet.set_next_level_protocol(IpNextHeaderProtocols::Tcp);
+
+        // Set up the TCP packet
+        let mut tcp_packet = MutableTcpPacket::new(&mut tcp_buffer[..]).unwrap();
+        tcp_packet.set_source(source_port);
+        tcp_packet.set_destination(destination_port);
+
+        // Combine the IPv4 and TCP packets
+        ipv4_packet.set_payload(tcp_packet.packet());
+
+        // Set up the PcapFilter
+        let filter = PcapFilter {
+            ip: Some(vec![source_ip.into(), destination_ip.into()]),
+            port: Some(vec![source_port, destination_port]),
+            src_ip: Some(source_ip.into()),
+            src_port: Some(source_port),
+            dest_ip: Some(destination_ip.into()),
+            dest_port: Some(destination_port),
+            timestamp: None,
+            buffer: None,
+        };
+
+        // Test the tcp_parse function
+        assert!(tcp_parse(Ipv4Packet::new(ipv4_packet.packet()).unwrap(), &filter));
+    }
+
+    #[test]
+    fn test_tcp6_parse() {
+        let mut ipv6_buffer = [0u8; 60]; // IPv6 header (40) + TCP header (20)
+        let mut tcp_buffer = [0u8; 20]; // TCP header
+
+        let source_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let destination_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+        let source_port = 8080;
+        let destination_port = 80;
+
+        // Set up the IPv6 packet
+        let mut ipv6_packet = MutableIpv6Packet::new(&mut ipv6_buffer).unwrap();
+        ipv6_packet.set_version(6);
+        ipv6_packet.set_payload_length(20); // TCP header
+        ipv6_packet.set_next_header(IpNextHeaderProtocols::Tcp);
+        ipv6_packet.set_source(source_ip);
+        ipv6_packet.set_destination(destination_ip);
+
+        // Set up the TCP packet
+        let mut tcp_packet = MutableTcpPacket::new(&mut tcp_buffer).unwrap();
+        tcp_packet.set_source(source_port);
+        tcp_packet.set_destination(destination_port);
+
+        // Combine the IPv6 and TCP packets
+        ipv6_packet.set_payload(tcp_packet.packet());
+
+        // Set up the PcapFilter
+        let filter = PcapFilter {
+            ip: Some(vec![source_ip.into(), destination_ip.into()]),
+            port: Some(vec![source_port, destination_port]),
+            src_ip: Some(source_ip.into()),
+            src_port: Some(source_port),
+            dest_ip: Some(destination_ip.into()),
+            dest_port: Some(destination_port),
+            timestamp: None,
+            buffer: None,
+        };
+
+        // Test the tcp6_parse function
+        assert!(tcp6_parse(Ipv6Packet::new(ipv6_packet.packet()).unwrap(), &filter));
+    }
+
+    #[test]
+    fn test_ipv6_parse_with_udp_packet() {
+        let src_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let dest_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+        let src_port = 1234;
+        let dest_port = 5678;
+
+        let ipv6_packet = create_ipv6_udp_packet(src_ip, dest_ip, src_port, dest_port);
+
+        let args = PcapFilter {
+            ip: Some(vec![IpAddr::V6(src_ip), IpAddr::V6(dest_ip)]),
+            port: Some(vec![src_port, dest_port]),
+            src_ip: Some(IpAddr::V6(src_ip)),
+            src_port: Some(src_port),
+            dest_ip: Some(IpAddr::V6(dest_ip)),
+            dest_port: Some(dest_port),
+            timestamp: None,
+            buffer: None,
+        };
+
+        assert!(ipv6_parse(&EthernetPacket::new(&ipv6_packet).unwrap(), &args));
+    }
+
+    #[test]
+    fn test_udp6_parse() {
+        let src_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let dest_ip = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+        let src_port = 1234;
+        let dest_port = 5678;
+
+        let ipv6_packet = create_ipv6_udp_packet(src_ip, dest_ip, src_port, dest_port);
+
+        let args = PcapFilter {
+            ip: Some(vec![IpAddr::V6(src_ip), IpAddr::V6(dest_ip)]),
+            port: Some(vec![src_port, dest_port]),
+            src_ip: Some(IpAddr::V6(src_ip)),
+            src_port: Some(src_port),
+            dest_ip: Some(IpAddr::V6(dest_ip)),
+            dest_port: Some(dest_port),
+            timestamp: None,
+            buffer: None,
+        };
+
+        assert!(udp6_parse(Ipv6Packet::new(&ipv6_packet[14..]).unwrap(), &args));
+    }
+
+    fn create_ipv6_udp_packet(
+        src_ip: Ipv6Addr,
+        dest_ip: Ipv6Addr,
+        src_port: u16,
+        dest_port: u16,
+    ) -> Vec<u8> {
+        let mut ethernet_buffer = [0u8; 62]; // Ethernet header (14) + IPv6 header (40) + UDP header (8)
+        let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer).unwrap();
+        ethernet_packet.set_ethertype(EtherTypes::Ipv6);
+
+        let mut ipv6_buffer = [0u8; 48]; // IPv6 header (40) + UDP header (8)
+        let mut ipv6_packet = MutableIpv6Packet::new(&mut ipv6_buffer).unwrap();
+        ipv6_packet.set_version(6);
+        ipv6_packet.set_payload_length(8);
+        ipv6_packet.set_next_header(IpNextHeaderProtocols::Udp);
+        ipv6_packet.set_source(src_ip);
+        ipv6_packet.set_destination(dest_ip);
+
+        let mut udp_buffer = [0u8; 8];
+        let mut udp_packet = MutableUdpPacket::new(&mut udp_buffer).unwrap();
+        udp_packet.set_source(src_port);
+        udp_packet.set_destination(dest_port);
+        udp_packet.set_length(8);
+
+        ipv6_packet.set_payload(udp_packet.packet());
+        ethernet_packet.set_payload(ipv6_packet.packet());
+
+        ethernet_buffer.to_vec()
+    }
+}
