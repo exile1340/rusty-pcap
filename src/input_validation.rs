@@ -44,3 +44,36 @@ pub fn validate_flow_time(flow_time: &str) -> Result<(), io::Error> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_ports_empty() {
+        let ports = vec![];
+        let result = validate_ports(&ports);
+        assert!(result.is_err(), "Expected an error for empty ports");
+    }
+
+    #[test]
+    fn test_validate_ports_non_empty() {
+        let ports = vec![80, 443];
+        let result = validate_ports(&ports);
+        assert!(result.is_ok(), "Expected no error for non-empty ports");
+    }
+
+    #[test]
+    fn test_validate_flow_time_valid() {
+        let flow_time = "2023-03-07T12:34:56.789Z";
+        let result = validate_flow_time(flow_time);
+        assert!(result.is_ok(), "Expected no error for valid flow time");
+    }
+
+    #[test]
+    fn test_validate_flow_time_invalid() {
+        let flow_time = "2023-03-07 12:34:56";
+        let result = validate_flow_time(flow_time);
+        assert!(result.is_err(), "Expected an error for invalid flow time");
+    }
+}

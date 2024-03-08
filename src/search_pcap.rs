@@ -13,6 +13,7 @@ enum BufferParseError {
 }
 
 // Define the BufferUnit enum
+#[derive(Debug, PartialEq)]
 enum BufferUnit {
     Seconds,
     Minutes,
@@ -75,9 +76,7 @@ fn parse_duration(input: &str) -> i64 {
 pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathBuf>, io::Error> {
     let mut matching_files = Vec::new();
     let buffer_parsed = parse_duration(&buffer);
-    log::info!("Searching Pcap files for a flow at {} with buffer of {} seconds", time, buffer_parsed);
-
-
+    log::debug!("Searching {:?} for pcap files at {} with buffer of {} seconds", path, time, buffer_parsed);
 
     // Read the directory
     for entry in fs::read_dir(&path)? {
@@ -126,7 +125,7 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
             log::debug!("{:?} is not a pcap file", path_buf)
         }
     }
-    log::info!("{} pcap files matched flow time filter", matching_files.len());
+    log::debug!("{} pcap files matched flow time filter in {:?}", matching_files.len(), path);
     Ok(matching_files)
 }
 
@@ -163,5 +162,60 @@ fn is_pcap_file(path: &PathBuf) -> bool {
             ext_str == "pcap" || ext_str == "pcapng"
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_parse_duration() {
+        assert_eq!(parse_duration("10s"), 10);
+        assert_eq!(parse_duration("5m"), 300);
+        assert_eq!(parse_duration("2h"), 7200);
+        assert_eq!(parse_duration("1d"), 86400);
+        assert_eq!(parse_duration("invalid"), 0);
+    }
+
+    #[test]
+    fn test_buffer_unit_from_str() {
+        assert_eq!(BufferUnit::from_str("s").unwrap(), BufferUnit::Seconds);
+        assert_eq!(BufferUnit::from_str("m").unwrap(), BufferUnit::Minutes);
+        assert_eq!(BufferUnit::from_str("h").unwrap(), BufferUnit::Hours);
+        assert_eq!(BufferUnit::from_str("d").unwrap(), BufferUnit::Days);
+        assert!(BufferUnit::from_str("invalid").is_err());
+    }
+
+    #[test]
+    fn test_extract_timestamp_from_filename() {
+        assert_eq!(extract_timestamp_from_filename(&Some("snort.log.1609459200.pcap")), Some(1609459200)); // 2021-01-01T00:00:00Z
+        assert_eq!(extract_timestamp_from_filename(&Some("1609459200-something.pcap")), Some(1609459200)); // 2021-01-01T00:00:00Z
+        assert_eq!(extract_timestamp_from_filename(&Some("invalid.pcap")), None);
+    }
+
+    #[test]
+    fn test_is_pcap_file() {
+        assert!(is_pcap_file(&PathBuf::from("file.pcap")));
+        assert!(is_pcap_file(&PathBuf::from("file.pcapng")));
+        assert!(!is_pcap_file(&PathBuf::from("file.txt")));
+    }
+
+    #[test]
+    fn test_directory_function() {
+        // Create a temporary directory with a sample pcap file
+        let temp_dir = TempDir::new().unwrap();
+        let pcap_path = temp_dir.path().join("snort.log.1609459200.pcap"); // 2021-01-01T00:00:00Z
+        fs::write(&pcap_path, b"").unwrap();
+
+        // Test the directory function with a matching timestamp and buffer
+        let matching_files = directory(temp_dir.path().to_path_buf(), "2021-01-01T00:00:00+00:00", &"1d".to_string()).unwrap();
+        assert!(matching_files.contains(&pcap_path));
+
+        // Test with a non-matching timestamp
+        let non_matching_files = directory(temp_dir.path().to_path_buf(), "2020-01-02T00:00:00+00:00", &"1s".to_string()).unwrap();
+        assert!(!non_matching_files.contains(&pcap_path));
     }
 }

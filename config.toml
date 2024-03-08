@@ -5,7 +5,9 @@
 log_level = "info"
 
 # Directory where pcap files from suricata are stored
-pcap_directory = "/usr/local/var/log/suricata/pcaps/"
+# multiple directories can be specificed separated by a comma
+# Nested directories will be scanned for pcap files
+pcap_directory = "/var/log/suricata/pcaps/"
 
 # Directory where found pcap flows will be stored
 output_directory = "output"
