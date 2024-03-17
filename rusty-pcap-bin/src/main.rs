@@ -1,33 +1,7 @@
 // Import required modules
-use std::fs;
 use structopt::StructOpt;
 use std;
-use serde::{Deserialize, Serialize};
-use crate::cli::{Cli, run_cli_search};
-mod cli;
-mod input_validation;
-mod packet_parse;
-mod write_pcap;
-mod api_server;
-mod search_pcap;
-#[macro_use] extern crate rocket;
-
-// Define a configuration struct for server settings
-#[derive(FromForm, Deserialize, Serialize)]
-pub struct Config {
-    log_level: Option<String>,
-    pcap_directory: Option<String>,
-    output_directory: Option<String>,
-    enable_server: bool,
-    search_buffer: Option<String>,
-}
-
-// Function to read configuration from a file
-fn read_config(config_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
-    let config_contents = fs::read_to_string(config_path)?; // Read the contents of the config file
-    let config: Config = toml::from_str(&config_contents)?; // Parse the contents into a Config struct
-    Ok(config)
-}
+use rusty_pcap_lib::{Cli, api_server, cli::run_cli_search, PcapFilter, read_config};
 
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = read_config(args.config_file.as_deref().unwrap_or("config.toml"))?;
 
     // Define a pcap filter based on the command line arguments and config file
-    let pcap_filter = write_pcap::PcapFilter {
+    let pcap_filter = PcapFilter {
         ip: Some(args.ip.clone()),
         port: Some(args.port.clone()),
         src_ip: args.src_ip,
