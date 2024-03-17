@@ -5,7 +5,7 @@ use rocket::response::status::Custom;
 use rocket::http::Status;
 use rocket::response::{self, Responder};
 use rocket::fairing::{Fairing, Info, Kind};
-use crate::write_pcap::{self, PcapFilter};
+use crate::PcapFilter;
 use std::time::Instant;
 use crate::search_pcap;
 use std::fs::File;
@@ -13,8 +13,9 @@ use pcap_file::pcap::PcapReader;
 use crate::packet_parse;
 use crate::Config;
 use std::sync::Mutex;
-use rocket::{Request, Rocket, Build};
+use rocket::{routes, get, Build, Request, Rocket};
 use rocket::request::{self, FromRequest};
+use crate::write_pcap::{pcap_to_write, filter_to_name};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -69,8 +70,8 @@ impl<'r> Responder<'r, 'static> for CustomError {
 async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile, Custom<String>> {
 
     // create pcap file to write matched packet to
-    let output_pcap_file = write_pcap::filter_to_name(&pcap_request);
-    let mut pcap_writer = write_pcap::pcap_to_write(&pcap_request, config.output_directory.as_deref());
+    let output_pcap_file = filter_to_name(&pcap_request);
+    let mut pcap_writer = pcap_to_write(&pcap_request, config.output_directory.as_deref());
     // Start timer for how long the pcap search takes
     let start = Instant::now();
     let pcap_directory: Vec<String> = config.pcap_directory.as_ref().unwrap().split(',')

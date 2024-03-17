@@ -1,24 +1,10 @@
 // Import necessary libraries and modules
 use pcap_file::pcap::PcapWriter;
-use rocket::form::FromForm;
 use std::fs::File;
 use std::env;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::fs;
-
-// Define a struct PcapFilter with the derive traits for form handling, serialization, deserialization, comparison, and debugging
-#[derive(FromForm, Deserialize, Serialize, PartialEq, Debug)]
-pub struct PcapFilter {
-    pub ip: Option<Vec<std::net::IpAddr>>,
-    pub port: Option<Vec<u16>>,
-    pub src_ip: Option<std::net::IpAddr>,
-    pub src_port: Option<u16>,
-    pub dest_ip: Option<std::net::IpAddr>,
-    pub dest_port: Option<u16>,
-    pub timestamp: Option<String>,
-    pub buffer: Option<String>,
-}
+use crate::PcapFilter;
 
 fn is_valid_path(path: Option<&str>) -> bool {
     if path.is_none() {
@@ -260,6 +246,7 @@ mod tests {
             assert!(fs::metadata(&expected_file_name).is_ok());
             // Clean up: Close the pcap writer and remove the temporary directory
             drop(result);
+            fs::remove_file("2024-03-07T12-34-56Z_src-ip-127.0.0.1_src-port-8080_dest-ip-192.168.1.1_dest-port-80.pcap").unwrap();
         }
     }
 

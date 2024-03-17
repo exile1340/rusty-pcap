@@ -8,7 +8,7 @@ use pcap_file::pcap::PcapPacket;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use chrono::{DateTime, Utc};
 use std::time::UNIX_EPOCH;
-use crate::write_pcap::PcapFilter;
+use crate::PcapFilter;
 
 fn _packet_time(pcap: &PcapPacket) -> String  {
     let full_time = pcap.timestamp;

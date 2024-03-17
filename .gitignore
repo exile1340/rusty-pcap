@@ -1,3 +1,7 @@
 /target
 Cargo.lock
 /.idea
+output/*
+firedbg
+.vscode
+.DS_Store
