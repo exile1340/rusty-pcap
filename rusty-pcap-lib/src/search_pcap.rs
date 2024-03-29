@@ -1,9 +1,10 @@
 // Import necessary libraries and modules
+use chrono::{DateTime, Duration, FixedOffset, LocalResult, TimeZone, Utc};
 use std::ffi::OsStr;
-use std::path::PathBuf;
-use chrono::{DateTime, Duration, LocalResult, FixedOffset, TimeZone, Utc};
-use std::io;
 use std::fs;
+use std::io;
+use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 // Define the custom error for the parsing of the BufferUnit enum
@@ -30,8 +31,8 @@ impl FromStr for BufferUnit {
             "s" => Ok(BufferUnit::Seconds),
             "m" => Ok(BufferUnit::Minutes),
             "h" => Ok(BufferUnit::Hours),
-            "d"=> Ok(BufferUnit::Days),
-            _ =>Err(BufferParseError::InvalidFormat),
+            "d" => Ok(BufferUnit::Days),
+            _ => Err(BufferParseError::InvalidFormat),
         }
     }
 }
@@ -40,27 +41,27 @@ impl FromStr for BufferUnit {
 fn parse_duration(input: &str) -> i64 {
     let (value, unit) = if let Some(last_char) = input.chars().last() {
         match last_char {
-            's' | 'm' | 'h' | 'd'=> (&input[..input.len() - 1], Some(last_char.to_string())),
+            's' | 'm' | 'h' | 'd' => (&input[..input.len() - 1], Some(last_char.to_string())),
             _ => (input, None),
         }
     } else {
         log::error!("Search buffer is not defined properly, defaulting to 0 seconds");
-        return 0
+        return 0;
     };
 
     let number = match value.parse::<i64>() {
         Ok(num) => num,
         Err(_) => {
-            log::error!("Search buffer is not defined properly, defaulting to 0 seconds"); 
-            return 0
+            log::error!("Search buffer is not defined properly, defaulting to 0 seconds");
+            return 0;
         }
     };
 
     let unit = match unit.as_deref().unwrap_or("s").parse::<BufferUnit>() {
         Ok(u) => u,
         Err(_) => {
-            log::error!("Search buffer is not defined properly, defaulting to 0 seconds"); 
-            return 0
+            log::error!("Search buffer is not defined properly, defaulting to 0 seconds");
+            return 0;
         }
     };
 
@@ -75,15 +76,20 @@ fn parse_duration(input: &str) -> i64 {
 // Function to return all pcap files in the directory that match the conditions
 pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathBuf>, io::Error> {
     let mut matching_files = Vec::new();
-    let buffer_parsed = parse_duration(&buffer);
-    log::debug!("Searching {:?} for pcap files at {} with buffer of {} seconds", path, time, buffer_parsed);
+    let buffer_parsed = parse_duration(buffer);
+    log::debug!(
+        "Searching {:?} for pcap files at {} with buffer of {} seconds",
+        path,
+        time,
+        buffer_parsed
+    );
 
     // Read the directory
     for entry in fs::read_dir(&path)? {
         let entry = entry?;
         let path_buf = entry.path();
 
-        // Check if the file is a pcap file 
+        // Check if the file is a pcap file
         if path_buf.is_dir() {
             let nested_output = directory(path_buf, time, buffer)?;
             matching_files.extend(nested_output);
@@ -94,18 +100,33 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
             let last_modified = extract_modified_time(&path_buf)?;
 
             let timestamp = extract_timestamp_from_filename(&path_str);
-            
+
             // Check if timestamp from the file name is valid
             if let Some(file_time) = timestamp {
-                log::debug!("Pcap file started at {:?} and ended at {}", Utc.timestamp_opt(file_time, 0), last_modified);
+                log::debug!(
+                    "Pcap file started at {:?} and ended at {}",
+                    Utc.timestamp_opt(file_time, 0),
+                    last_modified
+                );
                 match Utc.timestamp_opt(file_time, 0) {
                     LocalResult::Single(file_time) => {
                         let flow_time: DateTime<FixedOffset> = DateTime::parse_from_rfc3339(time)
                             .or_else(|_| DateTime::parse_from_str(time, "%Y-%m-%dT%H:%M:%S%.f%z"))
-                            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("The timestamp provided is not valid {}", e)))?;
-                        log::debug!("Flow time: {} with buffer {} seconds", flow_time, buffer_parsed);
+                            .map_err(|e| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!("The timestamp provided is not valid {}", e),
+                                )
+                            })?;
+                        log::debug!(
+                            "Flow time: {} with buffer {} seconds",
+                            flow_time,
+                            buffer_parsed
+                        );
                         let flow_time = flow_time.with_timezone(&Utc);
-                        if (flow_time + Duration::seconds(buffer_parsed)) >= file_time && (flow_time - Duration::seconds(buffer_parsed))<= last_modified {
+                        if (flow_time + Duration::seconds(buffer_parsed)) >= file_time
+                            && (flow_time - Duration::seconds(buffer_parsed)) <= last_modified
+                        {
                             log::debug!("{:?} matched timestamp filter", path_buf);
                             matching_files.push(path_buf)
                         } else if flow_time.timestamp() == 0 {
@@ -115,7 +136,10 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
                     }
                     _ => {
                         log::warn!("Invalid timestamp on {:?}", path_str);
-                        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid timestamp"))
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Invalid timestamp",
+                        ));
                     }
                 }
             } else {
@@ -125,7 +149,11 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
             log::debug!("{:?} is not a pcap file", path_buf)
         }
     }
-    log::debug!("{} pcap files matched flow time filter in {:?}", matching_files.len(), path);
+    log::debug!(
+        "{} pcap files matched flow time filter in {:?}",
+        matching_files.len(),
+        path
+    );
     Ok(matching_files)
 }
 
@@ -134,7 +162,11 @@ fn extract_timestamp_from_filename(filename: &Option<&str>) -> Option<i64> {
     filename.and_then(|f| {
         let parts: Vec<&str> = f.split('.').collect();
         // Check for the format 'snort.log.<timestamp>.pcap'
-        if parts.len() == 4 && parts[0].starts_with("snort") && parts[1].starts_with("log") && parts[3] == "pcap" {
+        if parts.len() == 4
+            && parts[0].starts_with("snort")
+            && parts[1].starts_with("log")
+            && parts[3] == "pcap"
+        {
             return parts[2].parse::<i64>().ok();
         }
         // Check for the format '<timestamp>-<any_other_part>.pcap'
@@ -155,7 +187,7 @@ fn extract_modified_time(file: &PathBuf) -> io::Result<DateTime<Utc>> {
 }
 
 // Function to check if a file is a pcap file
-fn is_pcap_file(path: &PathBuf) -> bool {
+fn is_pcap_file(path: &Path) -> bool {
     match path.extension() {
         Some(ext) => {
             let ext_str = ext.to_str().unwrap_or("").to_lowercase();
@@ -191,8 +223,14 @@ mod tests {
 
     #[test]
     fn test_extract_timestamp_from_filename() {
-        assert_eq!(extract_timestamp_from_filename(&Some("snort.log.1609459200.pcap")), Some(1609459200)); // 2021-01-01T00:00:00Z
-        assert_eq!(extract_timestamp_from_filename(&Some("1609459200-something.pcap")), Some(1609459200)); // 2021-01-01T00:00:00Z
+        assert_eq!(
+            extract_timestamp_from_filename(&Some("snort.log.1609459200.pcap")),
+            Some(1609459200)
+        ); // 2021-01-01T00:00:00Z
+        assert_eq!(
+            extract_timestamp_from_filename(&Some("1609459200-something.pcap")),
+            Some(1609459200)
+        ); // 2021-01-01T00:00:00Z
         assert_eq!(extract_timestamp_from_filename(&Some("invalid.pcap")), None);
     }
 
@@ -211,11 +249,21 @@ mod tests {
         fs::write(&pcap_path, b"").unwrap();
 
         // Test the directory function with a matching timestamp and buffer
-        let matching_files = directory(temp_dir.path().to_path_buf(), "2021-01-01T00:00:00+00:00", &"1d".to_string()).unwrap();
+        let matching_files = directory(
+            temp_dir.path().to_path_buf(),
+            "2021-01-01T00:00:00+00:00",
+            &"1d".to_string(),
+        )
+        .unwrap();
         assert!(matching_files.contains(&pcap_path));
 
         // Test with a non-matching timestamp
-        let non_matching_files = directory(temp_dir.path().to_path_buf(), "2020-01-02T00:00:00+00:00", &"1s".to_string()).unwrap();
+        let non_matching_files = directory(
+            temp_dir.path().to_path_buf(),
+            "2020-01-02T00:00:00+00:00",
+            &"1s".to_string(),
+        )
+        .unwrap();
         assert!(!non_matching_files.contains(&pcap_path));
     }
 }

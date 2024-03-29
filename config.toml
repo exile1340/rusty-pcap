@@ -20,3 +20,10 @@ enable_server = false
 # default is 0s
 search_buffer = "0s"
 
+# Rocket Configs
+# These values can be set in a config.local.toml file
+[server]
+address = "0.0.0.0"
+port = 8000
+#key = "server.key"  # Path or bytes to DER-encoded ASN.1 PKCS#1/#8 or SEC1 key.
+#cert = "server.crt" # Path or bytes to DER-encoded X.509 TLS cert chain.]

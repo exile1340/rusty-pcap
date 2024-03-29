@@ -1,21 +1,22 @@
-use lazy_static::lazy_static;
-use rocket::fs::NamedFile;
-use std::path::PathBuf;
-use rocket::response::status::Custom;
-use rocket::http::Status;
-use rocket::response::{self, Responder};
-use rocket::fairing::{Fairing, Info, Kind};
-use crate::PcapFilter;
-use std::time::Instant;
-use crate::search_pcap;
-use std::fs::File;
-use pcap_file::pcap::PcapReader;
 use crate::packet_parse;
+use crate::search_pcap;
+use crate::write_pcap::{filter_to_name, pcap_to_write};
 use crate::Config;
-use std::sync::Mutex;
-use rocket::{routes, get, Build, Request, Rocket};
+use crate::PcapFilter;
+use lazy_static::lazy_static;
+use pcap_file::pcap::PcapReader;
+use rocket::fairing::{Fairing, Info, Kind};
+use rocket::figment::Figment;
+use rocket::fs::NamedFile;
+use rocket::http::Status;
 use rocket::request::{self, FromRequest};
-use crate::write_pcap::{pcap_to_write, filter_to_name};
+use rocket::response::status::Custom;
+use rocket::response::{self, Responder};
+use rocket::{get, routes, Build, Request, Rocket};
+use std::fs::File;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -68,46 +69,54 @@ impl<'r> Responder<'r, 'static> for CustomError {
 }
 
 async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile, Custom<String>> {
-
     // create pcap file to write matched packet to
     let output_pcap_file = filter_to_name(&pcap_request);
     let mut pcap_writer = pcap_to_write(&pcap_request, config.output_directory.as_deref());
     // Start timer for how long the pcap search takes
     let start = Instant::now();
-    let pcap_directory: Vec<String> = config.pcap_directory.as_ref().unwrap().split(',')
-                                        .map(|s| s.trim().to_string())
-                                        .collect();
+    let pcap_directory: Vec<String> = config
+        .pcap_directory
+        .as_ref()
+        .unwrap()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
     log::info!("Searching Pcap directory {:?}", &pcap_directory);
     // Set the directory for pcap files as a PathBuf
     //let pcap_directory = PathBuf::from(config.pcap_directory.as_ref().unwrap());
     let mut file_list: Vec<PathBuf> = Vec::new();
     for dir in pcap_directory {
-        file_list.extend(search_pcap::directory(PathBuf::from(&dir), &pcap_request.timestamp.clone().unwrap_or_default(), &pcap_request.buffer.as_ref().unwrap_or(&"0".to_string())).unwrap_or_else(|_| {
-            log::error!("Failed to get file list from directory: {:?}", &dir);
-            Vec::new()
-        }))
-    };
+        file_list.extend(
+            search_pcap::directory(
+                PathBuf::from(&dir),
+                &pcap_request.timestamp.clone().unwrap_or_default(),
+                pcap_request.buffer.as_ref().unwrap_or(&"0".to_string()),
+            )
+            .unwrap_or_else(|_| {
+                log::error!("Failed to get file list from directory: {:?}", &dir);
+                Vec::new()
+            }),
+        )
+    }
     log::info!("{:?} Pcap files to search", file_list.len());
     log::debug!("Files: {:?}", file_list);
 
-    // look at every file 
+    // look at every file
     for file in file_list {
         let path = file.as_path();
-        match File::open(&path) {
-            Ok(file) => {
-                match PcapReader::new(file) {
-                    Ok(mut pcap_reader) => {
-                        while let Some(Ok(packet)) = pcap_reader.next_packet() {
-                            if packet_parse::packet_parse(&packet, &pcap_request) {
-                                if let Err(err) = pcap_writer.write_packet(&packet) {
-                                    log::error!("Error writing packet to output pcap file: {}", err);
-                                }
+        match File::open(path) {
+            Ok(file) => match PcapReader::new(file) {
+                Ok(mut pcap_reader) => {
+                    while let Some(Ok(packet)) = pcap_reader.next_packet() {
+                        if packet_parse::packet_parse(&packet, &pcap_request) {
+                            if let Err(err) = pcap_writer.write_packet(&packet) {
+                                log::error!("Error writing packet to output pcap file: {}", err);
                             }
                         }
-                    },
-                    Err(_) => {
-                        log::error!("Failed to create PcapReader for file: {:?}", path);
                     }
+                }
+                Err(_) => {
+                    log::error!("Failed to create PcapReader for file: {:?}", path);
                 }
             },
             Err(_) => {
@@ -118,12 +127,13 @@ async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile
 
     let duration = start.elapsed();
     log::info!("Pcap search took: {:?} seconds", duration.as_secs_f64());
-    let file_path = PathBuf::from(config.output_directory.as_ref().unwrap().to_owned()+"/"+&output_pcap_file);
+    let file_path = PathBuf::from(
+        config.output_directory.as_ref().unwrap().to_owned() + "/" + &output_pcap_file,
+    );
     log::info!("Sending {:?} back to requestor.", file_path);
     NamedFile::open(file_path)
         .await
         .map_err(|_| Custom(Status::NotFound, "File not found".to_string()))
-
 }
 
 #[get("/")]
@@ -132,14 +142,19 @@ fn index() -> &'static str {
 }
 
 #[get("/pcap?<pcap_request..>")]
-async fn pcap(pcap_request: Option<PcapFilter>, config: &rocket::State<Config>, _counter: RequestCounter) -> Result<NamedFile, Custom<String>> {
+async fn pcap(
+    pcap_request: Option<PcapFilter>,
+    config: &rocket::State<Config>,
+    _counter: RequestCounter,
+) -> Result<NamedFile, Custom<String>> {
     let start_time = Instant::now();
 
     let result = match pcap_request {
-        Some(request) => {
-            get_pcap(request, config.inner()).await
-        }
-        None => Err(Custom(Status::BadRequest, format!("Missing parameters: {:?}", pcap_request))),
+        Some(request) => get_pcap(request, config.inner()).await,
+        None => Err(Custom(
+            Status::BadRequest,
+            format!("Missing parameters: {:?}", pcap_request),
+        )),
     };
 
     let response_time = start_time.elapsed().as_millis() as u64;
@@ -170,7 +185,31 @@ fn status() -> String {
 }
 
 pub fn rocket(config: crate::Config) -> rocket::Rocket<rocket::Build> {
-    rocket::build()
+    let mut figment = Figment::from(rocket::Config::figment());
+
+    // if Cert and Key are set, use TLS
+    if let (Some(cert), Some(key)) = (
+        config.server.as_ref().unwrap().cert.as_ref(),
+        config.server.as_ref().unwrap().key.as_ref(),
+    ) {
+        figment = figment.merge(("tls.certs", cert)).merge(("tls.key", key));
+    } else {
+        log::warn!("Cert or Key not set in config.toml, defaulting to http");
+    }
+
+    if let Some(address) = &config.server.as_ref().unwrap().address {
+        figment = figment.merge(("address", address));
+    } else {
+        log::warn!("address not set in config.toml, defaulting to 127.0.0.1");
+    }
+
+    if let Some(port) = config.server.as_ref().unwrap().port {
+        figment = figment.merge(("port", port));
+    } else {
+        log::warn!("Port not set in config.toml, defaulting to port 8000");
+    }
+
+    rocket::custom(figment)
         .attach(UptimeTracker)
         .manage(config)
         .mount("/", routes![pcap])

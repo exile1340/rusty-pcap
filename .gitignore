@@ -5,3 +5,5 @@ output/*
 firedbg
 .vscode
 .DS_Store
+config.local.toml
+certs/
