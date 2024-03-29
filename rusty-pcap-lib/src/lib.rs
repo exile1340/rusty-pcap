@@ -1,29 +1,38 @@
 // lib.rs
-pub mod cli;
-pub mod write_pcap;
+#![allow(clippy::blocks_in_conditions)]
 pub mod api_server;
+pub mod cli;
 pub mod input_validation;
 pub mod packet_parse;
 pub mod search_pcap;
-use serde::{Deserialize, Serialize};
+pub mod write_pcap;
 use rocket::FromForm;
-use structopt::StructOpt;
+use serde::{Deserialize, Serialize};
 use std::fs;
+use structopt::StructOpt;
 
 // Define a configuration struct for server settings
-#[derive(FromForm, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub log_level: Option<String>,
     pub pcap_directory: Option<String>,
     pub output_directory: Option<String>,
-    pub enable_server: bool,
+    pub enable_server: Option<bool>,
     pub search_buffer: Option<String>,
+    pub server: Option<RocketConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RocketConfig {
+    pub address: Option<String>,
+    pub port: Option<u16>,
+    pub key: Option<String>,
+    pub cert: Option<String>,
 }
 
 // Define a struct PcapFilter with the derive traits for form handling, serialization, deserialization, comparison, and debugging
-#[derive(FromForm, Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, PartialEq, Debug, FromForm)]
 pub struct PcapFilter {
-    pub ip: Option<Vec<std::net::IpAddr>>,
     pub port: Option<Vec<u16>>,
     pub src_ip: Option<std::net::IpAddr>,
     pub src_port: Option<u16>,
@@ -31,6 +40,7 @@ pub struct PcapFilter {
     pub dest_port: Option<u16>,
     pub timestamp: Option<String>,
     pub buffer: Option<String>,
+    pub ip: Option<Vec<std::net::IpAddr>>,
 }
 
 #[derive(StructOpt)]
@@ -38,13 +48,27 @@ pub struct Cli {
     #[structopt(help = "Config file", short = "c", long = "config")]
     pub config_file: Option<String>,
 
-    #[structopt(help = "PCAP file to parse", short = "f", long = "file", conflicts_with = "pcap_dir")]
+    #[structopt(
+        help = "PCAP file to parse",
+        short = "f",
+        long = "file",
+        conflicts_with = "pcap_dir"
+    )]
     pub pcap_file: Option<std::path::PathBuf>,
 
-    #[structopt(help = "Directory for Suricata PCAP files", short = "l", long = "pcap_dir", conflicts_with = "pcap_file")]
+    #[structopt(
+        help = "Directory for Suricata PCAP files",
+        short = "l",
+        long = "pcap_dir",
+        conflicts_with = "pcap_file"
+    )]
     pub pcap_dir: Option<String>,
 
-    #[structopt(help = "Timestamp of the flow", long = "ts", conflicts_with = "no_timestamp")]
+    #[structopt(
+        help = "Timestamp of the flow",
+        long = "ts",
+        conflicts_with = "no_timestamp"
+    )]
     pub timestamp: Option<String>,
 
     #[structopt(help = "IP to filter on", long = "ip", multiple = true)]
@@ -65,10 +89,16 @@ pub struct Cli {
     #[structopt(help = "Port to filter on", long = "port", multiple = true)]
     pub port: Vec<u16>,
 
-    #[structopt(help = "Log level (e.g., debug, info, warn, error)", long = "log-level")]
+    #[structopt(
+        help = "Log level (e.g., debug, info, warn, error)",
+        long = "log-level"
+    )]
     pub log_level: Option<String>,
 
-    #[structopt(help = "If no timestamp is given, use this flag to search all pcap files", long = "no-timestamp")]
+    #[structopt(
+        help = "If no timestamp is given, use this flag to search all pcap files",
+        long = "no-timestamp"
+    )]
     pub no_timestamp: bool,
 
     #[structopt(help = "Run API server", long = "server")]

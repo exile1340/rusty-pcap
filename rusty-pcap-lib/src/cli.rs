@@ -1,19 +1,23 @@
-use std::path::PathBuf;
 use crate::input_validation;
-use crate::PcapFilter;
-use crate::Config;
-use std::fs::File;
-use std::time::Instant;
-use pcap_file::pcap::PcapReader;
 use crate::packet_parse;
 use crate::search_pcap;
-use crate::Cli;
 use crate::write_pcap::pcap_to_write;
+use crate::Cli;
+use crate::Config;
+use crate::PcapFilter;
+use pcap_file::pcap::PcapReader;
+use std::fs::File;
+use std::path::PathBuf;
+use std::time::Instant;
 
-pub fn run_cli_search(filter: PcapFilter, args: Cli,  config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_cli_search(
+    filter: PcapFilter,
+    args: Cli,
+    config: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Validate if timestamp is valid and set to timestamp
     log::debug!("Starting CLI Search");
-    let mut args= args;
+    let mut args = args;
     let timestamp = if let Some(ref ts) = args.timestamp {
         input_validation::validate_flow_time(ts)?;
         ts.clone()
@@ -51,25 +55,35 @@ pub fn run_cli_search(filter: PcapFilter, args: Cli,  config: &Config) -> Result
         let start = Instant::now();
         log::info!("Searching Pcap directory {:?}", &config.pcap_directory);
         // Set the directory for pcap files as a PathBuf
-        let pcap_directory: Vec<String> = config.pcap_directory.as_ref().unwrap().split(',')
-                                        .map(|s| s.trim().to_string())
-                                        .collect();
+        let pcap_directory: Vec<String> = config
+            .pcap_directory
+            .as_ref()
+            .unwrap()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
         let mut file_list: Vec<PathBuf> = Vec::new();
         for dir in pcap_directory {
-            file_list.extend(search_pcap::directory(PathBuf::from(&dir), &timestamp.clone(), &config.search_buffer.as_ref().unwrap_or(&"0".to_string())).unwrap_or_else(|_| {
-                log::error!("Failed to get file list from directory: {:?}", &dir);
-                Vec::new()
-            }))
-        };
+            file_list.extend(
+                search_pcap::directory(
+                    PathBuf::from(&dir),
+                    &timestamp.clone(),
+                    config.search_buffer.as_ref().unwrap_or(&"0".to_string()),
+                )
+                .unwrap_or_else(|_| {
+                    log::error!("Failed to get file list from directory: {:?}", &dir);
+                    Vec::new()
+                }),
+            )
+        }
         log::debug!("Files to search: {:?}", file_list);
-        // look at every file 
+        // look at every file
         for file in file_list {
             let file_name = File::open(file.as_path())?;
             let mut pcap_reader = PcapReader::new(file_name)?;
             while let Some(Ok(packet)) = pcap_reader.next_packet() {
                 if packet_parse::packet_parse(&packet, &filter) {
                     pcap_writer.write_packet(&packet).unwrap();
-
                 }
             }
         }

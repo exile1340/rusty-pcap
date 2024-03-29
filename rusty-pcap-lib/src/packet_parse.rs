@@ -1,21 +1,21 @@
-use pnet::packet::Packet as pnet_packet;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::ipv6::Ipv6Packet;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::ip::IpNextHeaderProtocol;
+use crate::PcapFilter;
+use chrono::{DateTime, Utc};
 use pcap_file::pcap::PcapPacket;
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use chrono::{DateTime, Utc};
+use pnet::packet::ip::IpNextHeaderProtocol;
+use pnet::packet::ipv4::Ipv4Packet;
+use pnet::packet::ipv6::Ipv6Packet;
+use pnet::packet::tcp::TcpPacket;
+use pnet::packet::udp::UdpPacket;
+use pnet::packet::Packet as pnet_packet;
 use std::time::UNIX_EPOCH;
-use crate::PcapFilter;
 
-fn _packet_time(pcap: &PcapPacket) -> String  {
+fn _packet_time(pcap: &PcapPacket) -> String {
     let full_time = pcap.timestamp;
     let d = UNIX_EPOCH + full_time;
     let datetime = DateTime::<Utc>::from(d);
     let timestamp_str = datetime.format("%H:%M:%S.%6f").to_string();
-    return timestamp_str;
+    timestamp_str
 }
 
 fn ipv4_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
@@ -23,7 +23,11 @@ fn ipv4_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
 
     // Check if packet contains the IP from args.ip
     if let Some(ips) = &args.ip {
-        if !ips.is_empty() && !ips.iter().any(|&ip| ip == v4_packet.get_source() || ip == v4_packet.get_destination()) {
+        if !ips.is_empty()
+            && !ips
+                .iter()
+                .any(|&ip| ip == v4_packet.get_source() || ip == v4_packet.get_destination())
+        {
             return false;
         }
     }
@@ -44,9 +48,9 @@ fn ipv4_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
 
     // Depending on the next level protocol, parse the packet accordingly
     match v4_packet.get_next_level_protocol() {
-        IpNextHeaderProtocol(17) => udp_parse(v4_packet, &args),
-        IpNextHeaderProtocol(6) => tcp_parse(v4_packet, &args),
-        IpNextHeaderProtocol(1) => icmp_parse(&args),
+        IpNextHeaderProtocol(17) => udp_parse(v4_packet, args),
+        IpNextHeaderProtocol(6) => tcp_parse(v4_packet, args),
+        IpNextHeaderProtocol(1) => icmp_parse(args),
         _ => false,
         //_ => args.port.is_none() && args.src_port.is_none() && args.dest_port.is_none(),
     }
@@ -57,7 +61,11 @@ fn ipv6_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
 
     // Check if packet contains the IP from args.ip
     if let Some(ips) = &args.ip {
-        if !ips.is_empty() && !ips.iter().any(|&ip| ip == v6_packet.get_source() || ip == v6_packet.get_destination()) {
+        if !ips.is_empty()
+            && !ips
+                .iter()
+                .any(|&ip| ip == v6_packet.get_source() || ip == v6_packet.get_destination())
+        {
             return false;
         }
     }
@@ -80,24 +88,25 @@ fn ipv6_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
     match v6_packet.get_next_header() {
         IpNextHeaderProtocol(17) => udp6_parse(v6_packet, args),
         IpNextHeaderProtocol(6) => tcp6_parse(v6_packet, args),
-        IpNextHeaderProtocol(1) => icmp_parse(&args),
+        IpNextHeaderProtocol(1) => icmp_parse(args),
         _ => args.port.is_none() && args.src_port.is_none() && args.dest_port.is_none(),
     }
 }
 
-fn icmp_parse (args: &PcapFilter) -> bool {
-    if args.port.is_none() && args.src_port.is_none() && args.dest_port.is_none() {
-        return true
-    } else { false }
+fn icmp_parse(args: &PcapFilter) -> bool {
+    args.port.is_none() && args.src_port.is_none() && args.dest_port.is_none()
 }
 
-fn udp_parse( v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
-    let udp_packet = UdpPacket::new(&v4_packet.payload()).unwrap();
+fn udp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
+    let udp_packet = UdpPacket::new(v4_packet.payload()).unwrap();
 
     if let Some(port) = &args.port {
         if !match port.len() {
             1 => port[0] == udp_packet.get_source() || port[0] == udp_packet.get_destination(),
-            2 => port.contains(&udp_packet.get_source()) && port.contains(&udp_packet.get_destination()),
+            2 => {
+                port.contains(&udp_packet.get_source())
+                    && port.contains(&udp_packet.get_destination())
+            }
             _ => false,
         } {
             return false;
@@ -115,12 +124,12 @@ fn udp_parse( v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
             return false;
         }
     }
-    
+
     true
 }
 
 fn tcp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
-    let tcp_packet = TcpPacket::new(&v4_packet.payload()).unwrap();
+    let tcp_packet = TcpPacket::new(v4_packet.payload()).unwrap();
 
     if let Some(port) = &args.port {
         match port.len() {
@@ -129,10 +138,14 @@ fn tcp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
                 if tcp_port != tcp_packet.get_source() && tcp_port != tcp_packet.get_destination() {
                     return false;
                 }
-            },
-            2 => if !port.contains(&tcp_packet.get_source()) || !port.contains(&tcp_packet.get_destination()) {
+            }
+            2 => {
+                if !port.contains(&tcp_packet.get_source())
+                    || !port.contains(&tcp_packet.get_destination())
+                {
                     return false;
-                },
+                }
+            }
             _ => return false,
         }
     }
@@ -151,7 +164,7 @@ fn tcp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
 }
 
 fn udp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
-    let udp_packet = UdpPacket::new(&v6_packet.payload()).unwrap();
+    let udp_packet = UdpPacket::new(v6_packet.payload()).unwrap();
 
     if let Some(port) = &args.port {
         match port.len() {
@@ -160,11 +173,15 @@ fn udp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
                 if udp_port != udp_packet.get_source() && udp_port != udp_packet.get_destination() {
                     return false;
                 }
-            },
-            2 => if !port.contains(&udp_packet.get_source()) || !port.contains(&udp_packet.get_destination()) {
+            }
+            2 => {
+                if !port.contains(&udp_packet.get_source())
+                    || !port.contains(&udp_packet.get_destination())
+                {
                     return false;
-                },
-            _ => return false,  // Invalid number of ports provided
+                }
+            }
+            _ => return false, // Invalid number of ports provided
         }
     }
 
@@ -184,7 +201,7 @@ fn udp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
 }
 
 fn tcp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
-    let tcp_packet = TcpPacket::new(&v6_packet.payload()).unwrap();
+    let tcp_packet = TcpPacket::new(v6_packet.payload()).unwrap();
 
     if let Some(port) = &args.port {
         match port.len() {
@@ -193,10 +210,14 @@ fn tcp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
                 if tcp_port != tcp_packet.get_source() && tcp_port != tcp_packet.get_destination() {
                     return false;
                 }
-            },
-            2 => if !port.contains(&tcp_packet.get_source()) || !port.contains(&tcp_packet.get_destination()) {
+            }
+            2 => {
+                if !port.contains(&tcp_packet.get_source())
+                    || !port.contains(&tcp_packet.get_destination())
+                {
                     return false;
-                },
+                }
+            }
             _ => return false,
         }
     }
@@ -222,9 +243,7 @@ pub fn packet_parse(pcap: &PcapPacket, args: &PcapFilter) -> bool {
     match eth_packet {
         EtherTypes::Ipv4 => ipv4_parse(&ethernet_packet, args),
         EtherTypes::Ipv6 => ipv6_parse(&ethernet_packet, args),
-        _ => {
-            false
-        },
+        _ => false,
     }
 }
 
@@ -232,13 +251,13 @@ pub fn packet_parse(pcap: &PcapPacket, args: &PcapFilter) -> bool {
 mod tests {
     use super::*;
     use pnet::packet::ethernet::{EthernetPacket, MutableEthernetPacket};
+    use pnet::packet::ip::IpNextHeaderProtocols;
     use pnet::packet::ipv4::{Ipv4Packet, MutableIpv4Packet};
+    use pnet::packet::ipv6::MutableIpv6Packet;
+    use pnet::packet::tcp::MutableTcpPacket;
     use pnet::packet::udp::MutableUdpPacket;
     use pnet::packet::Packet;
-    use std::net::{Ipv4Addr, Ipv6Addr, IpAddr};
-    use pnet::packet::ip::IpNextHeaderProtocols;
-    use pnet::packet::tcp::MutableTcpPacket;
-    use pnet::packet::ipv6::MutableIpv6Packet;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     fn create_ipv4_udp_packet(
         src_ip: Ipv4Addr,
@@ -249,7 +268,7 @@ mod tests {
         let mut ethernet_buffer = [0u8; 42]; // Ethernet header (14) + IPv4 header (20) + UDP header (8)
         let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer).unwrap();
         ethernet_packet.set_ethertype(EtherTypes::Ipv4);
-    
+
         // Increase the buffer size to accommodate both the IPv4 header and UDP header
         let mut ipv4_udp_buffer = [0u8; 28]; // IPv4 header (20) + UDP header (8)
         let mut ipv4_packet = MutableIpv4Packet::new(&mut ipv4_udp_buffer).unwrap();
@@ -259,19 +278,19 @@ mod tests {
         ipv4_packet.set_next_level_protocol(IpNextHeaderProtocols::Udp);
         ipv4_packet.set_source(src_ip);
         ipv4_packet.set_destination(dest_ip);
-    
+
         let mut udp_buffer = [0u8; 8];
         let mut udp_packet = MutableUdpPacket::new(&mut udp_buffer).unwrap();
         udp_packet.set_source(src_port);
         udp_packet.set_destination(dest_port);
         udp_packet.set_length(8);
-    
+
         // Set the UDP header as the payload of the IPv4 packet
         ipv4_packet.set_payload(udp_packet.packet());
-    
+
         // Set the IPv4 packet (with UDP payload) as the payload of the Ethernet packet
         ethernet_packet.set_payload(ipv4_packet.packet());
-    
+
         ethernet_buffer.to_vec()
     }
 
@@ -285,7 +304,10 @@ mod tests {
         let ethernet_packet = EthernetPacket::new(&packet_data).unwrap();
 
         let filter = PcapFilter {
-            ip: Some(vec![std::net::IpAddr::V4(src_ip), std::net::IpAddr::V4(dest_ip)]),
+            ip: Some(vec![
+                std::net::IpAddr::V4(src_ip),
+                std::net::IpAddr::V4(dest_ip),
+            ]),
             port: Some(vec![src_port, dest_port]),
             src_ip: Some(std::net::IpAddr::V4(src_ip)),
             src_port: Some(src_port),
@@ -338,7 +360,10 @@ mod tests {
         };
 
         // Test the tcp_parse function
-        assert!(tcp_parse(Ipv4Packet::new(ipv4_packet.packet()).unwrap(), &filter));
+        assert!(tcp_parse(
+            Ipv4Packet::new(ipv4_packet.packet()).unwrap(),
+            &filter
+        ));
     }
 
     #[test]
@@ -380,7 +405,10 @@ mod tests {
         };
 
         // Test the tcp6_parse function
-        assert!(tcp6_parse(Ipv6Packet::new(ipv6_packet.packet()).unwrap(), &filter));
+        assert!(tcp6_parse(
+            Ipv6Packet::new(ipv6_packet.packet()).unwrap(),
+            &filter
+        ));
     }
 
     #[test]
@@ -403,7 +431,10 @@ mod tests {
             buffer: None,
         };
 
-        assert!(ipv6_parse(&EthernetPacket::new(&ipv6_packet).unwrap(), &args));
+        assert!(ipv6_parse(
+            &EthernetPacket::new(&ipv6_packet).unwrap(),
+            &args
+        ));
     }
 
     #[test]
@@ -426,7 +457,10 @@ mod tests {
             buffer: None,
         };
 
-        assert!(udp6_parse(Ipv6Packet::new(&ipv6_packet[14..]).unwrap(), &args));
+        assert!(udp6_parse(
+            Ipv6Packet::new(&ipv6_packet[14..]).unwrap(),
+            &args
+        ));
     }
 
     fn create_ipv6_udp_packet(

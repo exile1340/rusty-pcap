@@ -1,10 +1,10 @@
 // Import necessary libraries and modules
-use pcap_file::pcap::PcapWriter;
-use std::fs::File;
-use std::env;
-use std::path::Path;
-use std::fs;
 use crate::PcapFilter;
+use pcap_file::pcap::PcapWriter;
+use std::env;
+use std::fs;
+use std::fs::File;
+use std::path::Path;
 
 fn is_valid_path(path: Option<&str>) -> bool {
     if path.is_none() {
@@ -29,20 +29,18 @@ pub fn pcap_to_write(args: &PcapFilter, output_dir: Option<&str>) -> PcapWriter<
     // Get current directory
     let mut full_path;
     let current_dir = env::current_dir().unwrap();
-    if !is_valid_path(output_dir)  {
+    if !is_valid_path(output_dir) {
         full_path = current_dir;
         log::error!("Output pcap directory does not exist: {:?}", output_dir);
         log::warn!("Setting pcap directory to {:?}", full_path);
+    } else if if_full_path(output_dir) {
+        full_path = output_dir.unwrap().into();
     } else {
-        if if_full_path(output_dir) {
-            full_path = output_dir.unwrap().into();
-        } else {
-            full_path = current_dir.join(output_dir.unwrap());
-        }
+        full_path = current_dir.join(output_dir.unwrap());
     }
-    
+
     // Join the directory and file name
-    full_path = full_path.join(filter_to_name(&args));
+    full_path = full_path.join(filter_to_name(args));
     log::info!("Pcap file to write {:?}", full_path);
 
     // Create the new pcap file
@@ -50,7 +48,7 @@ pub fn pcap_to_write(args: &PcapFilter, output_dir: Option<&str>) -> PcapWriter<
     let pcap_writer = PcapWriter::new(temp_file);
     // If the pcap writer was successfully created, return it. Otherwise, log an error and exit the program.
     match pcap_writer {
-        Ok(pcap_writer) => return pcap_writer,
+        Ok(pcap_writer) => pcap_writer,
         _pcap_error => {
             log::error!("Something went wrong getting pcap file to write");
             std::process::exit(1);
@@ -117,7 +115,7 @@ pub fn filter_to_name(args: &PcapFilter) -> String {
 
     // Clean up the file name by removing trailing underscores and replacing colons with dashes
     file_name = file_name.trim_end_matches('_').to_string();
-    file_name = file_name.replace(":", "-");
+    file_name = file_name.replace(':', "-");
 
     // Append the .pcap extension to the file name
     file_name.push_str(".pcap");
@@ -126,17 +124,16 @@ pub fn filter_to_name(args: &PcapFilter) -> String {
     file_name
 }
 
-
 // Tests
 #[cfg(test)]
 mod tests {
     use super::*;
-    mod  file_creation_test {
+    mod file_creation_test {
         use super::*;
-        use std::net::Ipv4Addr;
         use std::fs;
+        use std::net::Ipv4Addr;
         #[test]
-        fn test_pcap_to_write_src_and_dest () {
+        fn test_pcap_to_write_src_and_dest() {
             // Create a temporary directory for the test
             let temp_dir = tempfile::tempdir().unwrap();
             let temp_dir_path = temp_dir.path().to_str().unwrap();
@@ -157,9 +154,9 @@ mod tests {
             let pcap_writer = pcap_to_write(&filter, Some(temp_dir_path));
 
             // Check if the pcap file was created successfully
-            print!("{:?}",pcap_writer);
+            print!("{:?}", pcap_writer);
             let expected_file_name = format!("{}/2024-03-07T12-34-56Z_src-ip-127.0.0.1_src-port-8080_dest-ip-192.168.1.1_dest-port-80.pcap", temp_dir_path);
-            assert!(fs::metadata(&expected_file_name).is_ok());
+            assert!(fs::metadata(expected_file_name).is_ok());
 
             // Clean up: Close the pcap writer and remove the temporary directory
             drop(pcap_writer);
@@ -167,14 +164,17 @@ mod tests {
         }
 
         #[test]
-        fn test_pcap_to_write_ip_and_ports () {
+        fn test_pcap_to_write_ip_and_ports() {
             // Create a temporary directory for the test
             let temp_dir = tempfile::tempdir().unwrap();
             let temp_dir_path = temp_dir.path().to_str().unwrap();
 
             // Create a PcapFilter instance for testing
             let filter = PcapFilter {
-                ip: Some(vec![Ipv4Addr::new(127, 0, 0, 1).into(), Ipv4Addr::new(127, 0, 0, 2).into()]),
+                ip: Some(vec![
+                    Ipv4Addr::new(127, 0, 0, 1).into(),
+                    Ipv4Addr::new(127, 0, 0, 2).into(),
+                ]),
                 port: Some(vec![80, 443]),
                 src_ip: None,
                 src_port: None,
@@ -188,9 +188,12 @@ mod tests {
             let pcap_writer = pcap_to_write(&filter, Some(temp_dir_path));
 
             // Check if the pcap file was created successfully
-            print!("{:?}",pcap_writer);
-            let expected_file_name = format!("{}/2024-03-07T12-34-56Z_127.0.0.1_127.0.0.2_80_443.pcap", temp_dir_path);
-            assert!(fs::metadata(&expected_file_name).is_ok());
+            print!("{:?}", pcap_writer);
+            let expected_file_name = format!(
+                "{}/2024-03-07T12-34-56Z_127.0.0.1_127.0.0.2_80_443.pcap",
+                temp_dir_path
+            );
+            assert!(fs::metadata(expected_file_name).is_ok());
 
             // Clean up: Close the pcap writer and remove the temporary directory
             drop(pcap_writer);
@@ -216,14 +219,13 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 pcap_to_write(&args, Some(temp_dir_path));
             });
-            
+
             // Assert
             assert!(result.is_err());
         }
 
         #[test]
         fn test_pcap_to_write_invalid_directory() {
-            
             let temp_dir = env::current_dir().unwrap();
 
             // Create a PcapFilter instance with sample data
@@ -243,7 +245,7 @@ mod tests {
             let result = pcap_to_write(&filter, Some(invalid_directory));
             let expected_file_name = format!("{}/2024-03-07T12-34-56Z_src-ip-127.0.0.1_src-port-8080_dest-ip-192.168.1.1_dest-port-80.pcap", temp_dir.to_str().unwrap());
             print!("{:?}", result);
-            assert!(fs::metadata(&expected_file_name).is_ok());
+            assert!(fs::metadata(expected_file_name).is_ok());
             // Clean up: Close the pcap writer and remove the temporary directory
             drop(result);
             fs::remove_file("2024-03-07T12-34-56Z_src-ip-127.0.0.1_src-port-8080_dest-ip-192.168.1.1_dest-port-80.pcap").unwrap();
@@ -261,7 +263,7 @@ mod tests {
             let result = is_valid_path(path);
 
             // Assert
-            assert_eq!(result, false);
+            assert!(!result);
         }
 
         #[test]
@@ -273,7 +275,7 @@ mod tests {
             let result = is_valid_path(path);
 
             // Assert
-            assert_eq!(result, false);
+            assert!(!result);
         }
 
         #[test]
@@ -285,36 +287,36 @@ mod tests {
             let result = is_valid_path(path.to_str());
 
             // Assert
-            assert_eq!(result, true);
+            assert!(result);
         }
     }
 
     mod path_tests {
         use super::*;
-    
+
         #[test]
         fn returns_false_if_path_is_none() {
             let path = None;
-            assert_eq!(if_full_path(path), false);
+            assert!(!if_full_path(path));
         }
-    
+
         #[test]
         fn returns_false_if_path_does_not_start_with_slash() {
             let path = Some("relative/path");
-            assert_eq!(if_full_path(path), false);
+            assert!(!if_full_path(path));
         }
-    
+
         #[test]
         fn returns_true_if_path_starts_with_slash() {
             let path = Some("/absolute/path");
-            assert_eq!(if_full_path(path), true);
+            assert!(if_full_path(path));
         }
     }
 
     mod filter_to_name_tests {
         use super::*;
         use std::net::Ipv4Addr;
-    
+
         #[test]
         fn test_filter_to_name_with_timestamp() {
             let filter = PcapFilter {
@@ -327,11 +329,11 @@ mod tests {
                 dest_port: None,
                 buffer: None,
             };
-    
+
             let expected = "2024-03-07T12-34-56Z.pcap";
             assert_eq!(filter_to_name(&filter), expected);
         }
-    
+
         #[test]
         fn test_filter_to_name_with_ips_and_ports() {
             let filter = PcapFilter {
@@ -344,11 +346,11 @@ mod tests {
                 dest_port: None,
                 buffer: None,
             };
-    
+
             let expected = "127.0.0.1_80.pcap";
             assert_eq!(filter_to_name(&filter), expected);
         }
-    
+
         #[test]
         fn test_filter_to_name_with_src_and_dest() {
             let filter = PcapFilter {
@@ -361,16 +363,19 @@ mod tests {
                 dest_port: Some(80),
                 buffer: None,
             };
-    
+
             let expected = "src-ip-192.168.1.1_src-port-8080_dest-ip-10.0.0.1_dest-port-80.pcap";
             assert_eq!(filter_to_name(&filter), expected);
         }
-    
+
         #[test]
         fn test_filter_to_name_with_all_fields() {
             let filter = PcapFilter {
                 timestamp: Some("2024-03-07T12:34:56Z".to_string()),
-                ip: Some(vec![Ipv4Addr::new(127, 0, 0, 1).into(), Ipv4Addr::new(127, 0, 0, 2).into()]),
+                ip: Some(vec![
+                    Ipv4Addr::new(127, 0, 0, 1).into(),
+                    Ipv4Addr::new(127, 0, 0, 2).into(),
+                ]),
                 port: Some(vec![80, 443]),
                 src_ip: Some(Ipv4Addr::new(192, 168, 1, 1).into()),
                 src_port: Some(8080),
@@ -378,7 +383,7 @@ mod tests {
                 dest_port: Some(80),
                 buffer: None,
             };
-    
+
             let expected = "2024-03-07T12-34-56Z_127.0.0.1_127.0.0.2_80_443_src-ip-192.168.1.1_src-port-8080_dest-ip-10.0.0.1_dest-port-80.pcap";
             assert_eq!(filter_to_name(&filter), expected);
         }
