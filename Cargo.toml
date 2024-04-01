@@ -3,5 +3,4 @@ resolver = "2"
 members = [
     "rusty-pcap-bin",
     "rusty-pcap-lib",
-    "rusty-pcap-web",
 ]
