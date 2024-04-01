@@ -13,6 +13,7 @@ use rocket::request::{self, FromRequest};
 use rocket::response::status::Custom;
 use rocket::response::{self, Responder};
 use rocket::{get, routes, Build, Request, Rocket};
+use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -209,8 +210,24 @@ pub fn rocket(config: crate::Config) -> rocket::Rocket<rocket::Build> {
         log::warn!("Port not set in config.toml, defaulting to port 8000");
     }
 
+    log::info!("Cors is {}", config.enable_cors);
+    let cors = if config.enable_cors {
+        CorsOptions {
+            // Allow all origins
+            allowed_origins: AllowedOrigins::all(),
+            ..Default::default()
+        }
+        .to_cors()
+        .expect("error while building CORS")
+    } else {
+        CorsOptions::default()
+            .to_cors()
+            .expect("error while building CORS")
+    };
+
     rocket::custom(figment)
         .attach(UptimeTracker)
+        .attach(cors)
         .manage(config)
         .mount("/", routes![pcap])
         .mount("/", routes![index])
