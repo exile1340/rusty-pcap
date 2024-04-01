@@ -20,6 +20,21 @@ pub struct Config {
     pub enable_server: Option<bool>,
     pub search_buffer: Option<String>,
     pub server: Option<RocketConfig>,
+    pub enable_cors: bool,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            log_level: Some("warning".to_string()),
+            pcap_directory: None,
+            output_directory: Some("output".to_string()),
+            enable_server: Some(false),
+            search_buffer: Some("30s".to_string()),
+            server: None,
+            enable_cors: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
