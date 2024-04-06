@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "rusty-pcap-bin",
+    "rusty-pcap",
     "rusty-pcap-lib",
 ]

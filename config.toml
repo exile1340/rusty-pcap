@@ -21,7 +21,7 @@ enable_server = false
 search_buffer = "0s"
 
 # Enable cross origin requests
-enable_cors = false
+enable_cors = true
 
 # Rocket Configs
 # These values can be set in a config.local.toml file
