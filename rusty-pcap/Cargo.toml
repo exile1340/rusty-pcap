@@ -1,5 +1,5 @@
 [package]
-name = "rusty-pcap-bin"
+name = "rusty-pcap"
 version = "0.1.0"
 authors = ["exile1340"]
 edition = "2021"
