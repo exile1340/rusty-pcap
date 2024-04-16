@@ -40,7 +40,7 @@ jobs:
         
         runs-on: ${{ matrix.OS }}
         env:
-            name: rusty-pcap
+            NAME: rusty-pcap
             TARGET: ${{ matrix.TARGET }}
             OS: ${{ matrix.OS }}
 
