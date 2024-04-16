@@ -1,0 +1,50 @@
+name: Rust
+
+on:
+  push:
+    tags:
+      - '*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_release:
+    name: Build and release
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        target: x86_64-unknown-linux-gnu, aarch64-apple-darwin
+
+    - name: Build for x86_64
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --target x86_64-unknown-linux-gnu
+      env:
+        PKG_CONFIG_ALLOW_CROSS: 1
+
+    - name: Build for ARM
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --target aarch64-apple-darwin
+      env:
+        PKG_CONFIG_ALLOW_CROSS: 1
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          target/x86_64-unknown-linux-gnu/release/rusty-pcap
+          target/aarch64-apple-darwin/release/rusty-pcap
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
