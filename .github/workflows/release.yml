@@ -55,15 +55,15 @@ jobs:
             run: find ./target
           - name: Compress
             run: |
-              mkdir -p ./artifacts
-        
-              if [[ $GITHUB_REF_TYPE =~ ^tag$ ]]; then
-                TAG=$GITHUB_REF_NAME
-              else
-                TAG=$GITHUB_SHA
-              fi
-              mv ./target/$TARGET/release/$NAME ./$NAME
-              tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz $NAME
+                mkdir -p ./artifacts
+
+                if [[ $GITHUB_REF_TYPE =~ ^tag$ ]]; then
+                    TAG=$GITHUB_REF_NAME
+                else
+                    TAG=$GITHUB_SHA
+                fi
+                mv ./target/$TARGET/release/$NAME ./$NAME
+                tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz ./$NAME
               
           - name: Archive artifact
             uses: actions/upload-artifact@v2
