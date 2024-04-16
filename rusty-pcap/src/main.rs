@@ -8,7 +8,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Cli::from_args();
 
     // Read the configuration file
-    let mut config = read_config(args.config_file.as_deref().unwrap_or("config.toml"))?;
+    let mut config = match read_config(args.config_file.as_deref().unwrap_or("config.toml")) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Failed to read config file: {}.\nPlease provide the path to the file with --config or run the application from a directory containing the config.toml file.", err);
+            std::process::exit(1);
+        }
+    };
 
     // If a local config file is present overwrite the config values
     if let Ok(local_settings) = read_config("config.local.toml") {
