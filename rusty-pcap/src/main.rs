@@ -51,9 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clone()
         .or(config.log_level.clone())
         .unwrap_or_else(|| "error".to_string());
+    config.log_level = Some(log_level.clone());
 
     // Initialize the logger with the determined log level
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&log_level)).init();
+
+    log::info!("Logging level set to {}", log_level);
 
     // Determine if the server should be started
     let run_server = args.server || config.enable_server.unwrap();
@@ -73,6 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
     }
+
+    log::debug!("Config: \n{}", &config);
 
     // If the server is not enabled, run a CLI search
     // If the server is enabled, start the API server

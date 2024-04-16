@@ -8,6 +8,7 @@ pub mod search_pcap;
 pub mod write_pcap;
 use rocket::FromForm;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use structopt::StructOpt;
 
@@ -34,6 +35,32 @@ impl Default for Config {
             server: None,
             enable_cors: false,
         }
+    }
+}
+
+impl fmt::Display for Config {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "Log Level: {}",
+            self.log_level.as_ref().unwrap_or(&"None".to_string())
+        )?;
+        writeln!(
+            f,
+            "Pcap Directory: {}",
+            self.pcap_directory.as_ref().unwrap_or(&"None".to_string())
+        )?;
+        writeln!(
+            f,
+            "Output Directory: {}",
+            self.output_directory
+                .as_ref()
+                .unwrap_or(&"None".to_string())
+        )?;
+        writeln!(f, "Server: {}", self.enable_server.unwrap_or(false))?;
+        writeln!(f, "Search Buffer: {}", self.search_buffer.as_ref().unwrap())?;
+        writeln!(f, "Server Settings: {:?}", self.server.as_ref().unwrap())?;
+        writeln!(f, "Enable CORS: {}", self.enable_cors)
     }
 }
 
