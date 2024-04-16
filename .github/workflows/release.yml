@@ -62,7 +62,7 @@ jobs:
               else
                 TAG=$GITHUB_SHA
               fi
-              mv ./target/$TARGET/release/$EXEC ./$NAME
+              mv ./target/$TARGET/release/$NAME ./$NAME
               tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz $NAME
               
           - name: Archive artifact
