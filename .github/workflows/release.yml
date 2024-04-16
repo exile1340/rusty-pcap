@@ -65,7 +65,9 @@ jobs:
                 TAG=$GITHUB_SHA
               fi
               mv ./target/$TARGET/release/$EXEC ./$EXEC
+              ls ./artifacts
               tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz $EXEC
+              
           - name: Archive artifact
             uses: actions/upload-artifact@v2
             with:
