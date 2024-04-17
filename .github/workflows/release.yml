@@ -62,7 +62,7 @@ jobs:
                     TAG=$GITHUB_SHA
                 fi
                 mv ./target/$TARGET/release/$NAME ./$NAME
-                tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz ./$NAME ./config.toml
+                tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz ./$NAME config.toml
               
           - name: Archive artifact
             uses: actions/upload-artifact@v2
