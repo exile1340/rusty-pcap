@@ -31,14 +31,11 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - TARGET: x86_64-unknown-linux-gnu
+                    - TARGET: x86_64-unknown-linux-musl
                       OS: ubuntu-latest
                     - TARGET: aarch64-apple-darwin
                       OS: macos-latest
-                    - TARGET: x86_64-unknown-linux-gnu
-                      OS: ubuntu-latest  
-                      CONTAINER: oraclelinux:7
-                      RELEASE: oraclelinux
+                      
         needs: test
         
         runs-on: ${{ matrix.OS }}
@@ -46,8 +43,6 @@ jobs:
             NAME: rusty-pcap
             TARGET: ${{ matrix.TARGET }}
             OS: ${{ matrix.OS }}
-            CONTAINER: ${{ matrix.CONTAINER }}
-            RELEASE: ${{ matrix.RELEASE }}
 
         steps:
           - uses: actions/checkout@v3
@@ -68,7 +63,7 @@ jobs:
                     TAG=$GITHUB_SHA
                 fi
                 mv ./target/$TARGET/release/$NAME ./$NAME
-                tar -czf ./artifacts/$NAME-$TARGET$RELEASE-$TAG.tar.gz ./$NAME ./config.toml
+                tar -czf ./artifacts/$NAME-$TARGET-$TAG.tar.gz ./$NAME ./config.toml
               
           - name: Archive artifact
             uses: actions/upload-artifact@v2
