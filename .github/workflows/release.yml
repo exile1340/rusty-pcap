@@ -47,7 +47,7 @@ jobs:
             TARGET: ${{ matrix.TARGET }}
             OS: ${{ matrix.OS }}
             CONTAINER: ${{ matrix.CONTAINER }}
-            RELEASE: ${{ matric.RELEASE }}
+            RELEASE: ${{ matrix.RELEASE }}
 
         steps:
           - uses: actions/checkout@v3
