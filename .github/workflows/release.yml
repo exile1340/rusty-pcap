@@ -45,6 +45,7 @@ jobs:
             NAME: rusty-pcap
             TARGET: ${{ matrix.TARGET }}
             OS: ${{ matrix.OS }}
+            CONTAINER: ${{ matrix.CONTAINER }}
 
         steps:
           - uses: actions/checkout@v3
