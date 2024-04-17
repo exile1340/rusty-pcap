@@ -33,6 +33,8 @@ jobs:
                 include:
                     - TARGET: x86_64-unknown-linux-musl
                       OS: ubuntu-latest
+                    - TARGET: x86_64-unknown-linux-gnu
+                      OS: ubuntu-latest
                     - TARGET: aarch64-apple-darwin
                       OS: macos-latest
                       
@@ -49,6 +51,9 @@ jobs:
 
           - name: Install rust target
             run: rustup target add $TARGET
+          - name: Install musl-tools (Linux only)
+            if: startsWith(matrix.os, 'ubuntu')
+            run: sudo apt-get update && sudo apt-get install -y musl-tools
           - name: Run build
             run: cargo build --release --verbose --target $TARGET
           - name: List target
