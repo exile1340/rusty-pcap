@@ -1,8 +1,10 @@
-// Import necessary libraries and modules
+use chrono::NaiveDateTime;
 use chrono::{DateTime, Duration, FixedOffset, LocalResult, TimeZone, Utc};
+use regex::Regex;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -37,8 +39,43 @@ impl FromStr for BufferUnit {
     }
 }
 
+pub fn parse_time_field(time: &str) -> Result<DateTime<FixedOffset>, io::Error> {
+    log::debug!("Parsing time field: {}", time);
+    let patterns = [
+        "%+",
+        "%Y-%m-%dT%H:%M:%S%.f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S%:z",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S",
+    ];
+
+    let mut last_err = None;
+
+    for pattern in patterns {
+        log::debug!("Trying pattern: {}", pattern);
+        if let Ok(dt) = DateTime::parse_from_str(time, pattern) {
+            log::debug!("Parsed time field: {}", dt);
+            return Ok(dt);
+        } else if let Ok(naive) = NaiveDateTime::parse_from_str(time, pattern) {
+            log::debug!("Parsed time field: {}", naive);
+            // Assume UTC if no timezone provided
+            return Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
+                .with_timezone(&FixedOffset::east_opt(0).unwrap()));
+        } else {
+            last_err = Some(format!("Failed to parse using pattern {}", pattern));
+        }
+    }
+
+    log::error!("The timestamp {} is not valid. {:?}", time, last_err);
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("The timestamp {} is not valid.", time),
+    ))
+}
+
 // Function to parse the duration from a string
-fn parse_duration(input: &str) -> i64 {
+pub fn parse_duration(input: &str) -> i64 {
     let (value, unit) = if let Some(last_char) = input.chars().last() {
         match last_char {
             's' | 'm' | 'h' | 'd' => (&input[..input.len() - 1], Some(last_char.to_string())),
@@ -74,9 +111,14 @@ fn parse_duration(input: &str) -> i64 {
 }
 
 // Function to return all pcap files in the directory that match the conditions
-pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathBuf>, io::Error> {
+pub fn directory(
+    path: PathBuf,
+    time: DateTime<FixedOffset>,
+    buffer: &String,
+) -> Result<Vec<PathBuf>, io::Error> {
     let mut matching_files = Vec::new();
     let buffer_parsed = parse_duration(buffer);
+
     log::debug!(
         "Searching {:?} for pcap files at {} with buffer of {} seconds",
         path,
@@ -94,9 +136,9 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
             let nested_output = directory(path_buf, time, buffer)?;
             matching_files.extend(nested_output);
         } else if is_pcap_file(&path_buf) {
-            log::debug!("{:?} is a pcap file.", &path_buf);
+            println!("is a pcap file {:?}", &path_buf);
             let file_name_os_str = &path_buf.file_name();
-            let path_str = file_name_os_str.and_then(OsStr::to_str);
+            let path_str = file_name_os_str.and_then(OsStr::to_str).unwrap();
             let last_modified = extract_modified_time(&path_buf)?;
 
             let timestamp = extract_timestamp_from_filename(&path_str);
@@ -110,14 +152,8 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
                 );
                 match Utc.timestamp_opt(file_time, 0) {
                     LocalResult::Single(file_time) => {
-                        let flow_time: DateTime<FixedOffset> = DateTime::parse_from_rfc3339(time)
-                            .or_else(|_| DateTime::parse_from_str(time, "%Y-%m-%dT%H:%M:%S%.f%z"))
-                            .map_err(|e| {
-                                io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    format!("The timestamp provided is not valid {}", e),
-                                )
-                            })?;
+                        let flow_time: DateTime<FixedOffset> = time;
+
                         log::debug!(
                             "Flow time: {} with buffer {} seconds",
                             flow_time,
@@ -130,7 +166,7 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
                             log::debug!("{:?} matched timestamp filter", path_buf);
                             matching_files.push(path_buf)
                         } else if flow_time.timestamp() == 0 {
-                            log::debug!("{:?} matched since --no-timestamp was used", path_buf);
+                            log::debug!("{:?} matched since no timestamp was provided", path_buf);
                             matching_files.push(path_buf)
                         }
                     }
@@ -157,25 +193,28 @@ pub fn directory(path: PathBuf, time: &str, buffer: &String) -> Result<Vec<PathB
     Ok(matching_files)
 }
 
-// Function to extract a timestamp from a filename
-fn extract_timestamp_from_filename(filename: &Option<&str>) -> Option<i64> {
-    filename.and_then(|f| {
-        let parts: Vec<&str> = f.split('.').collect();
-        // Check for the format 'snort.log.<timestamp>.pcap'
-        if parts.len() == 4
-            && parts[0].starts_with("snort")
-            && parts[1].starts_with("log")
-            && parts[3] == "pcap"
-        {
-            return parts[2].parse::<i64>().ok();
+fn extract_timestamp_from_filename(filename: &str) -> Option<i64> {
+    let re_result = Regex::new(r"(\d{10})");
+    if let Ok(re) = re_result {
+        if let Some(caps) = re.captures(filename) {
+            if let Some(matched) = caps.get(1) {
+                let timestamp = matched.as_str().parse::<i64>();
+                let timestamp = match timestamp {
+                    Ok(t) => t,
+                    Err(_) => {
+                        log::error!("Invalid timestamp found in the filename {}", filename);
+                        return None;
+                    }
+                };
+                return Some(timestamp);
+            }
         }
-        // Check for the format '<timestamp>-<any_other_part>.pcap'
-        let parts: Vec<&str> = f.split('-').collect();
-        if parts.len() >= 2 && parts.last().map_or(false, |ext| ext.ends_with(".pcap")) {
-            return parts.first().and_then(|p| p.parse::<i64>().ok());
-        }
+        log::error!("No valid timestamp found in the filename {}", filename);
         None
-    })
+    } else {
+        log::error!("Error creating regex for timestamp extraction");
+        None
+    }
 }
 
 // Function to retrieve the time a file was last modified
@@ -186,21 +225,28 @@ fn extract_modified_time(file: &PathBuf) -> io::Result<DateTime<Utc>> {
     Ok(datetime)
 }
 
-// Function to check if a file is a pcap file
-fn is_pcap_file(path: &Path) -> bool {
-    match path.extension() {
-        Some(ext) => {
-            let ext_str = ext.to_str().unwrap_or("").to_lowercase();
-            ext_str == "pcap" || ext_str == "pcapng"
-        }
-        None => false,
+fn is_pcap_file(file_path: &Path) -> bool {
+    let mut file = match std::fs::File::open(file_path) {
+        Ok(file) => file,
+        Err(_) => return false, // If the file cannot be opened, assume it's not a PCAP
+    };
+
+    let mut buffer = [0u8; 4]; // Buffer to hold the first four bytes
+    if file.read_exact(&mut buffer).is_err() {
+        return false; // If reading fails, assume it's not a PCAP
     }
+    println!("{:?}", buffer);
+
+    // Convert the bytes to a u32 using native endian
+    let magic_number = u32::from_le_bytes(buffer);
+
+    // Check if the magic number matches either of the common PCAP headers
+    magic_number == 0xa1b2c3d4 || magic_number == 0xd4c3b2a1
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     #[test]
@@ -224,21 +270,14 @@ mod tests {
     #[test]
     fn test_extract_timestamp_from_filename() {
         assert_eq!(
-            extract_timestamp_from_filename(&Some("snort.log.1609459200.pcap")),
+            extract_timestamp_from_filename("snort.log.1609459200.pcap"),
             Some(1609459200)
         ); // 2021-01-01T00:00:00Z
         assert_eq!(
-            extract_timestamp_from_filename(&Some("1609459200-something.pcap")),
+            extract_timestamp_from_filename("1609459200-something.pcap"),
             Some(1609459200)
         ); // 2021-01-01T00:00:00Z
-        assert_eq!(extract_timestamp_from_filename(&Some("invalid.pcap")), None);
-    }
-
-    #[test]
-    fn test_is_pcap_file() {
-        assert!(is_pcap_file(&PathBuf::from("file.pcap")));
-        assert!(is_pcap_file(&PathBuf::from("file.pcapng")));
-        assert!(!is_pcap_file(&PathBuf::from("file.txt")));
+        assert_eq!(extract_timestamp_from_filename("invalid.pcap"), None);
     }
 
     #[test]
@@ -246,24 +285,32 @@ mod tests {
         // Create a temporary directory with a sample pcap file
         let temp_dir = TempDir::new().unwrap();
         let pcap_path = temp_dir.path().join("snort.log.1609459200.pcap"); // 2021-01-01T00:00:00Z
-        fs::write(&pcap_path, b"").unwrap();
+        fs::write(&pcap_path, b"\xA1\xB2\xC3\xD4").unwrap();
 
         // Test the directory function with a matching timestamp and buffer
+        println!("{:?}", pcap_path);
+        println!("{:?}", temp_dir.path());
+        println!(
+            "{:?}",
+            parse_time_field("2021-01-01T00:00:00+00:00").unwrap()
+        );
         let matching_files = directory(
             temp_dir.path().to_path_buf(),
-            "2021-01-01T00:00:00+00:00",
+            parse_time_field("2021-01-01T00:00:00+00:00").unwrap(),
             &"1d".to_string(),
         )
         .unwrap();
+        println!("{:?}", matching_files);
         assert!(matching_files.contains(&pcap_path));
 
         // Test with a non-matching timestamp
         let non_matching_files = directory(
             temp_dir.path().to_path_buf(),
-            "2020-01-02T00:00:00+00:00",
+            parse_time_field("2020-01-02T00:00:00+00:00").unwrap(),
             &"1s".to_string(),
         )
         .unwrap();
+        println!("{:?}", non_matching_files);
         assert!(!non_matching_files.contains(&pcap_path));
     }
 }

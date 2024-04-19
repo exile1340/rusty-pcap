@@ -5,6 +5,7 @@ use crate::write_pcap::pcap_to_write;
 use crate::Cli;
 use crate::Config;
 use crate::PcapFilter;
+use chrono::DateTime;
 use pcap_file::pcap::PcapReader;
 use std::fs::File;
 use std::path::PathBuf;
@@ -67,7 +68,7 @@ pub fn run_cli_search(
             file_list.extend(
                 search_pcap::directory(
                     PathBuf::from(&dir),
-                    &timestamp.clone(),
+                    DateTime::parse_from_str(&timestamp.clone(), "0")?,
                     config.search_buffer.as_ref().unwrap_or(&"0".to_string()),
                 )
                 .unwrap_or_else(|_| {
