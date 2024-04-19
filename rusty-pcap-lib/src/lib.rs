@@ -85,6 +85,21 @@ pub struct PcapFilter {
     pub ip: Option<Vec<std::net::IpAddr>>,
 }
 
+impl Default for PcapFilter {
+    fn default() -> Self {
+        PcapFilter {
+            src_ip: None,
+            dest_ip: None,
+            src_port: None,
+            dest_port: None,
+            timestamp: Some("1970-01-01T00:00:00Z".to_string()),
+            port: None,
+            buffer: Some("0".to_string()),
+            ip: None,
+        }
+    }
+}
+
 #[derive(StructOpt)]
 pub struct Cli {
     #[structopt(help = "Config file", short = "c", long = "config")]

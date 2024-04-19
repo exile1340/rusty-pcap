@@ -1,5 +1,6 @@
 use crate::packet_parse;
 use crate::search_pcap;
+use crate::search_pcap::parse_time_field;
 use crate::write_pcap::{filter_to_name, pcap_to_write};
 use crate::Config;
 use crate::PcapFilter;
@@ -82,19 +83,49 @@ async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile
         .split(',')
         .map(|s| s.trim().to_string())
         .collect();
+
+    // Check if timestamp is in RFC3339 or %Y-%m-%dT%H:%M:%S%.f%z format or a format we can parse
+    // If timestamp isn't set default to 1970-01-01T00:00:00Z
+    let flow_time = parse_time_field(
+        pcap_request
+            .timestamp
+            .as_ref()
+            .unwrap_or(&"1970-01-01T00:00:00".to_string()),
+    );
+
+    let search_time = match flow_time {
+        Ok(time) => time,
+        Err(_err) => {
+            log::error!(
+                "Timestamp {:?} is not in RFC3339 or %Y-%m-%dT%H:%M:%S%.f%z format",
+                pcap_request.timestamp
+            );
+            return Err(Custom(
+                Status::BadRequest,
+                "Timestamp is not in RFC3339 or %Y-%m-%dT%H:%M:%S%.f%z format".to_string(),
+            ));
+        }
+    };
+
     log::info!("Searching Pcap directory {:?}", &pcap_directory);
-    // Set the directory for pcap files as a PathBuf
-    //let pcap_directory = PathBuf::from(config.pcap_directory.as_ref().unwrap());
+
     let mut file_list: Vec<PathBuf> = Vec::new();
     for dir in pcap_directory {
+        log::debug!(
+            "Timestamp: {:?}",
+            &pcap_request.timestamp.clone().unwrap_or_default()
+        );
+
+        log::debug!("Pcap Request: {:?}", pcap_request);
         file_list.extend(
             search_pcap::directory(
                 PathBuf::from(&dir),
-                &pcap_request.timestamp.clone().unwrap_or_default(),
+                search_time,
                 pcap_request.buffer.as_ref().unwrap_or(&"0".to_string()),
             )
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|err| {
                 log::error!("Failed to get file list from directory: {:?}", &dir);
+                log::error!("Error: {:?}", err);
                 Vec::new()
             }),
         )
