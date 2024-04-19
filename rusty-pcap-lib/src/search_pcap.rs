@@ -136,7 +136,6 @@ pub fn directory(
             let nested_output = directory(path_buf, time, buffer)?;
             matching_files.extend(nested_output);
         } else if is_pcap_file(&path_buf) {
-            println!("is a pcap file {:?}", &path_buf);
             let file_name_os_str = &path_buf.file_name();
             let path_str = file_name_os_str.and_then(OsStr::to_str).unwrap();
             let last_modified = extract_modified_time(&path_buf)?;
@@ -235,7 +234,6 @@ fn is_pcap_file(file_path: &Path) -> bool {
     if file.read_exact(&mut buffer).is_err() {
         return false; // If reading fails, assume it's not a PCAP
     }
-    println!("{:?}", buffer);
 
     // Convert the bytes to a u32 using native endian
     let magic_number = u32::from_le_bytes(buffer);
@@ -288,19 +286,12 @@ mod tests {
         fs::write(&pcap_path, b"\xA1\xB2\xC3\xD4").unwrap();
 
         // Test the directory function with a matching timestamp and buffer
-        println!("{:?}", pcap_path);
-        println!("{:?}", temp_dir.path());
-        println!(
-            "{:?}",
-            parse_time_field("2021-01-01T00:00:00+00:00").unwrap()
-        );
         let matching_files = directory(
             temp_dir.path().to_path_buf(),
             parse_time_field("2021-01-01T00:00:00+00:00").unwrap(),
             &"1d".to_string(),
         )
         .unwrap();
-        println!("{:?}", matching_files);
         assert!(matching_files.contains(&pcap_path));
 
         // Test with a non-matching timestamp
@@ -310,7 +301,6 @@ mod tests {
             &"1s".to_string(),
         )
         .unwrap();
-        println!("{:?}", non_matching_files);
         assert!(!non_matching_files.contains(&pcap_path));
     }
 }
