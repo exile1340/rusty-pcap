@@ -73,7 +73,7 @@ pub struct RocketConfig {
 }
 
 // Define a struct PcapFilter with the derive traits for form handling, serialization, deserialization, comparison, and debugging
-#[derive(Deserialize, Serialize, PartialEq, Debug, FromForm)]
+#[derive(Deserialize, Serialize, PartialEq, Debug, FromForm, Clone)]
 pub struct PcapFilter {
     pub port: Option<Vec<u16>>,
     pub src_ip: Option<std::net::IpAddr>,

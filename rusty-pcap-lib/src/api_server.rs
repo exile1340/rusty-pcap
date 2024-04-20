@@ -21,6 +21,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::task;
 
 // Global variable to store the start time of the server
 lazy_static! {
@@ -109,15 +110,17 @@ async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile
 
     log::info!("Searching Pcap directory {:?}", &pcap_directory);
 
-    let mut file_list: Vec<PathBuf> = Vec::new();
+    let mut tasks = Vec::new();
     for dir in pcap_directory {
-        log::debug!(
-            "Timestamp: {:?}",
-            &pcap_request.timestamp.clone().unwrap_or_default()
-        );
+        let pcap_request = pcap_request.clone();
+        //let search_time = search_time;
+        tasks.push(task::spawn(async move {
+            log::debug!(
+                "Timestamp: {:?}",
+                &pcap_request.timestamp.clone().unwrap_or_default()
+            );
 
-        log::debug!("Pcap Request: {:?}", pcap_request);
-        file_list.extend(
+            log::debug!("Pcap Request: {:?}", pcap_request);
             search_pcap::directory(
                 PathBuf::from(&dir),
                 search_time,
@@ -127,8 +130,13 @@ async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile
                 log::error!("Failed to get file list from directory: {:?}", &dir);
                 log::error!("Error: {:?}", err);
                 Vec::new()
-            }),
-        )
+            })
+        }));
+    }
+
+    let mut file_list = Vec::new();
+    for task in tasks {
+        file_list.extend(task.await.unwrap());
     }
     log::info!("{:?} Pcap files to search", file_list.len());
     log::debug!("Files: {:?}", file_list);
