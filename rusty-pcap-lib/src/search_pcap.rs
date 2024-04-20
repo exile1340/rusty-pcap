@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Instant;
 
 // Define the custom error for the parsing of the BufferUnit enum
 #[derive(Debug)]
@@ -116,6 +117,7 @@ pub fn directory(
     time: DateTime<FixedOffset>,
     buffer: &String,
 ) -> Result<Vec<PathBuf>, io::Error> {
+    let start = Instant::now();
     let mut matching_files = Vec::new();
     let buffer_parsed = parse_duration(buffer);
 
@@ -189,6 +191,10 @@ pub fn directory(
         matching_files.len(),
         path
     );
+
+    let elapsed = start.elapsed();
+    log::info!("directory search function took: {:?}", elapsed);
+
     Ok(matching_files)
 }
 
