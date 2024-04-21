@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Duration, FixedOffset, LocalResult, TimeZone, Utc};
+use lazy_static::lazy_static;
 use regex::Regex;
 use std::ffi::OsStr;
 use std::fs;
@@ -9,6 +10,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
+
+lazy_static! {
+    static ref RE: Regex = Regex::new(r"(\d{10})").unwrap();
+}
 
 // Define the custom error for the parsing of the BufferUnit enum
 #[derive(Debug)]
@@ -137,12 +142,12 @@ pub fn directory(
         if path_buf.is_dir() {
             let nested_output = directory(path_buf, time, buffer)?;
             matching_files.extend(nested_output);
-        } else if is_pcap_file(&path_buf) {
+        } else if path_buf.extension().and_then(std::ffi::OsStr::to_str) == Some("pcap") {
             let file_name_os_str = &path_buf.file_name();
             let path_str = file_name_os_str.and_then(OsStr::to_str).unwrap();
             let last_modified = extract_modified_time(&path_buf)?;
 
-            let timestamp = extract_timestamp_from_filename(&path_str);
+            let timestamp = extract_timestamp_from_filename(path_str);
 
             // Check if timestamp from the file name is valid
             if let Some(file_time) = timestamp {
@@ -160,6 +165,7 @@ pub fn directory(
                             flow_time,
                             buffer_parsed
                         );
+
                         let flow_time = flow_time.with_timezone(&Utc);
                         if (flow_time + Duration::seconds(buffer_parsed)) >= file_time
                             && (flow_time - Duration::seconds(buffer_parsed)) <= last_modified
@@ -199,27 +205,13 @@ pub fn directory(
 }
 
 fn extract_timestamp_from_filename(filename: &str) -> Option<i64> {
-    let re_result = Regex::new(r"(\d{10})");
-    if let Ok(re) = re_result {
-        if let Some(caps) = re.captures(filename) {
-            if let Some(matched) = caps.get(1) {
-                let timestamp = matched.as_str().parse::<i64>();
-                let timestamp = match timestamp {
-                    Ok(t) => t,
-                    Err(_) => {
-                        log::error!("Invalid timestamp found in the filename {}", filename);
-                        return None;
-                    }
-                };
-                return Some(timestamp);
-            }
-        }
-        log::error!("No valid timestamp found in the filename {}", filename);
-        None
-    } else {
-        log::error!("Error creating regex for timestamp extraction");
-        None
-    }
+    let caps = RE.captures(filename)?;
+
+    let matched = caps.get(1)?;
+    let timestamp_str = matched.as_str();
+
+    let timestamp = timestamp_str.parse::<i64>().ok()?;
+    Some(timestamp)
 }
 
 // Function to retrieve the time a file was last modified
