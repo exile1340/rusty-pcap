@@ -7,8 +7,8 @@ log_level = "info"
 # Directory where pcap files from suricata are stored
 # multiple directories can be specificed separated by a comma
 # Nested directories will be scanned for pcap files
-pcap_directory = "/var/log/suricata/pcaps/"
-
+# pcap_directory = "/var/log/suricata/pcaps/"
+ pcap_directory = "/opt/homebrew/var/log/suricata"
 # Directory where found pcap flows will be stored
 output_directory = "output"
 
@@ -30,3 +30,13 @@ address = "0.0.0.0"
 port = 8000
 #key = "server.key"  # Path or bytes to DER-encoded ASN.1 PKCS#1/#8 or SEC1 key.
 #cert = "server.crt" # Path or bytes to DER-encoded X.509 TLS cert chain.]
+
+[pcap_agent]
+enable = true
+sguil_version = "SGUIL-1.0.0"
+server = "10.1.1.217"
+port = "7736"
+ping_interval = 30
+agent_type = "pcap"
+sensor_name = "pillarofautumn"
+sensor_net = "Int_Net"

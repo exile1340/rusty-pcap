@@ -71,7 +71,10 @@ impl<'r> Responder<'r, 'static> for CustomError {
     }
 }
 
-async fn get_pcap(pcap_request: PcapFilter, config: &Config) -> Result<NamedFile, Custom<String>> {
+pub async fn get_pcap(
+    pcap_request: PcapFilter,
+    config: &Config,
+) -> Result<NamedFile, Custom<String>> {
     // create pcap file to write matched packet to
     let output_pcap_file = filter_to_name(&pcap_request);
     let mut pcap_writer = pcap_to_write(&pcap_request, config.output_directory.as_deref());
