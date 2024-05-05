@@ -488,7 +488,7 @@ async fn xscript_request(
     //Sending pillarofautumn: RawDataRequest 11 pillarofautumn 2024-04-25 20:58:47 142.250.191.195 10.1.3.124 34696 6 10.1.3.124:34696_142.250.191.195:2561-6.raw xscript
     debug!("Processing XscriptRequest");
     let trans_id = request[1].as_str();
-    let sensor = request[2].as_str();
+    let _sensor = request[2].as_str();
 
     let timestamp = DateTime::<Utc>::from_naive_utc_and_offset(
         NaiveDateTime::parse_from_str(request[3].as_str(), "{%Y-%m-%d %H:%M:%S}")
@@ -501,7 +501,7 @@ async fn xscript_request(
     let dst_ip = request[5].as_str();
     let src_port = request[6].as_str();
     let dst_port = request[7].as_str();
-    let proto = request[8].as_str();
+    let _proto = request[8].as_str();
     let raw_data_file = request[9].as_str();
     let _type = request[10].as_str();
 
