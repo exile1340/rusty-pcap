@@ -8,12 +8,12 @@ log_level = "info"
 # multiple directories can be specificed separated by a comma
 # Nested directories will be scanned for pcap files
 # pcap_directory = "/var/log/suricata/pcaps/"
- pcap_directory = "/opt/homebrew/var/log/suricata"
+pcap_directory = "/mnt/nsm/pcap/pillarofautumn/dailylogs/"
 # Directory where found pcap flows will be stored
 output_directory = "output"
 
 # Enable the the API server to recieve pcap search requests
-enable_server = false
+enable_server = true
 
 # How far backward and forwards should we search on the timestamp of the flow
 # i.e. 30s "s" seconds, "m" minutes, "h" hours, "d" days
@@ -32,11 +32,13 @@ port = 8000
 #cert = "server.crt" # Path or bytes to DER-encoded X.509 TLS cert chain.]
 
 [pcap_agent]
-enable = true
+enable = false
 sguil_version = "SGUIL-1.0.0"
-server = "10.1.1.217"
+server = "127.0.0.1"
 port = "7736"
 ping_interval = 30
 agent_type = "pcap"
-sensor_name = "pillarofautumn"
+sensor_name = "sensor1"
 sensor_net = "Int_Net"
+disk_space_checkin = 300
+file_checkin = 300

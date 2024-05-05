@@ -11,6 +11,7 @@ use rocket::FromForm;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
+use std::path::Path;
 use structopt::StructOpt;
 
 // Define a configuration struct for server settings
@@ -171,4 +172,13 @@ pub fn read_config(config_path: &str) -> Result<Config, Box<dyn std::error::Erro
     let config_contents = fs::read_to_string(config_path)?; // Read the contents of the config file
     let config: Config = toml::from_str(&config_contents)?; // Parse the contents into a Config struct
     Ok(config)
+}
+
+// Function to ensure that a directory exists
+pub fn ensure_dir_exists(dir: &str) -> std::io::Result<()> {
+    let path = Path::new(dir);
+    if !path.exists() {
+        fs::create_dir_all(path)?; // create_dir_all is used to create the directory and all its parent directories if they do not exist
+    }
+    Ok(())
 }

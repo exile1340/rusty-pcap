@@ -1,5 +1,7 @@
 // Import required modules
-use rusty_pcap_lib::{api_server, cli::run_cli_search, read_config, Cli, PcapFilter};
+use rusty_pcap_lib::{
+    api_server, cli::run_cli_search, ensure_dir_exists, pcap_agent, read_config, Cli, PcapFilter,
+};
 use structopt::StructOpt;
 
 #[rocket::main]
@@ -9,7 +11,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read the configuration file
     let mut config = match read_config(args.config_file.as_deref().unwrap_or("config.toml")) {
-        Ok(config) => config,
+        Ok(mut config) => {
+            if config.pcap_agent.is_none() {
+                config.pcap_agent = Some(pcap_agent::PcapAgentConfig::default());
+            };
+            config
+        }
         Err(err) => {
             eprintln!("Failed to read config file: {}.\nPlease provide the path to the file with --config or run the application from a directory containing the config.toml file.", err);
             std::process::exit(1);
@@ -83,6 +90,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::debug!("Config: \n{}", &config);
 
     let mut tasks = Vec::new();
+
+    match ensure_dir_exists(&config.output_directory.clone().unwrap()) {
+        Ok(_) => log::info!("Pcap output directory exists or was created successfully"),
+        Err(e) => log::error!("Failed to create outpu directory: {}", e),
+    }
 
     // If the pcap_agent is enabled, start the pcap_agent task
     if run_pcap_agent {
