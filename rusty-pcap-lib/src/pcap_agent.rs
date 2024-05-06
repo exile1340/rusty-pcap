@@ -1,3 +1,10 @@
+/*
+ * This file contains the implementation of the Pcap Agent, this is a drop in replacement
+ * for the pcap_agent.tcl script from Sguil https://github.com/bammv/sguil.
+ * The agent connects to the Sguil server and listens for commands, it can also send data back to the server.
+ * The agent can parse directories with pcap files in the sguil format or suricata format.
+ */
+
 use crate::api_server;
 use crate::PcapFilter;
 use chrono::FixedOffset;
@@ -596,13 +603,11 @@ async fn data_agent(
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     tokio::select! {
         _ = ctrl_c => {
-            warn!("SIGINT received, shutting down");
             should_stop.cancel();
             task_tracker.close();
             task_tracker.wait().await;
         }
         _ = term_signal.recv() => {
-            warn!("Received termination signal...");
             should_stop.cancel();
         }
     }
@@ -667,25 +672,30 @@ async fn send_data(
     pcap_file: PathBuf,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut file = File::open(pcap_file).await.unwrap(); // Use the owned copy of pcap_file
-        let mut buffer = Vec::new();
-        tokio::select! {
-            result = file.read_to_end(&mut buffer) => {
-                match result {
-                    Ok(_) => {
-                        if let Err(e) = stream.write_all(&buffer).await {
-                            error!("Failed sending pcap file to sguil: {}", e);
-                        }
+        let mut file = File::open(&pcap_file).await.unwrap();
+        let mut buffer = vec![0; 4096]; // 4 KB buffer
+
+        while !should_stop.is_cancelled() {
+            let read_result = file.read(&mut buffer).await;
+            match read_result {
+                Ok(n) => {
+                    if n == 0 {
+                        break;
                     }
-                    Err(e) => {
-                        error!("Failed reading file: {}", e);
+                    if let Err(e) = stream.write_all(&buffer[..n]).await {
+                        error!("Failed sending pcap file to sguil: {}", e);
                     }
                 }
+                Err(e) => {
+                    error!("Failed reading file: {}", e);
+                    break;
+                }
             }
-            _ = should_stop.cancelled() => {
-                debug!("Stopping file send to sguil...");
-            }
+            // Sguild will drop packets if the file is sent too fast
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
+
+        info!("Finished sending pcap file to sguil...");
     })
 }
 

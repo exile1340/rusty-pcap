@@ -7,6 +7,7 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
 use pnet::packet::tcp::TcpPacket;
 use pnet::packet::udp::UdpPacket;
+use pnet::packet::vlan::{self, VlanPacket};
 use pnet::packet::Packet as pnet_packet;
 use std::time::UNIX_EPOCH;
 
@@ -18,8 +19,8 @@ fn _packet_time(pcap: &PcapPacket) -> String {
     timestamp_str
 }
 
-fn ipv4_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
-    let v4_packet = Ipv4Packet::new(ether_packet.payload()).unwrap();
+fn ipv4_parse(ip_packet: Ipv4Packet, args: &PcapFilter) -> bool {
+    let v4_packet = ip_packet;
 
     // Check if packet contains the IP from args.ip
     if let Some(ips) = &args.ip {
@@ -56,8 +57,8 @@ fn ipv4_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
     }
 }
 
-fn ipv6_parse(ether_packet: &EthernetPacket, args: &PcapFilter) -> bool {
-    let v6_packet = Ipv6Packet::new(ether_packet.payload()).unwrap();
+fn ipv6_parse(ip_packet: Ipv6Packet, args: &PcapFilter) -> bool {
+    let v6_packet = ip_packet;
 
     // Check if packet contains the IP from args.ip
     if let Some(ips) = &args.ip {
@@ -241,8 +242,23 @@ pub fn packet_parse(pcap: &PcapPacket, args: &PcapFilter) -> bool {
     let ethernet_packet = EthernetPacket::new(&pcap.data).unwrap();
     let eth_packet = ethernet_packet.get_ethertype();
     match eth_packet {
-        EtherTypes::Ipv4 => ipv4_parse(&ethernet_packet, args),
-        EtherTypes::Ipv6 => ipv6_parse(&ethernet_packet, args),
+        EtherTypes::Ipv4 => ipv4_parse(Ipv4Packet::new(ethernet_packet.payload()).unwrap(), args),
+        EtherTypes::Ipv6 => ipv6_parse(Ipv6Packet::new(ethernet_packet.payload()).unwrap(), args),
+        EtherTypes::Vlan => {
+            // Parse the VLAN header
+            let vlan_packet = VlanPacket::new(ethernet_packet.payload()).unwrap();
+            let vlan_ethertype = vlan_packet.get_ethertype();
+
+            match vlan_ethertype {
+                EtherTypes::Ipv4 => {
+                    ipv4_parse(Ipv4Packet::new(vlan_packet.payload()).unwrap(), args)
+                }
+                EtherTypes::Ipv6 => {
+                    ipv6_parse(Ipv6Packet::new(vlan_packet.payload()).unwrap(), args)
+                }
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
@@ -317,7 +333,10 @@ mod tests {
             buffer: None,
         };
 
-        assert!(ipv4_parse(&ethernet_packet, &filter));
+        assert!(ipv4_parse(
+            Ipv4Packet::new(ethernet_packet.payload()).unwrap(),
+            &filter
+        ));
     }
 
     #[test]
@@ -431,10 +450,7 @@ mod tests {
             buffer: None,
         };
 
-        assert!(ipv6_parse(
-            &EthernetPacket::new(&ipv6_packet).unwrap(),
-            &args
-        ));
+        assert!(ipv6_parse(Ipv6Packet::new(&ipv6_packet).unwrap(), &args));
     }
 
     #[test]
