@@ -7,7 +7,7 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::ipv6::Ipv6Packet;
 use pnet::packet::tcp::TcpPacket;
 use pnet::packet::udp::UdpPacket;
-use pnet::packet::vlan::{self, VlanPacket};
+use pnet::packet::vlan::VlanPacket;
 use pnet::packet::Packet as pnet_packet;
 use std::time::UNIX_EPOCH;
 
@@ -437,8 +437,8 @@ mod tests {
         let src_port = 1234;
         let dest_port = 5678;
 
-        let ipv6_packet = create_ipv6_udp_packet(src_ip, dest_ip, src_port, dest_port);
-
+        let ether_packet = create_ipv6_udp_packet(src_ip, dest_ip, src_port, dest_port);
+        let ipv6_packet = EthernetPacket::new(&ether_packet).unwrap();
         let args = PcapFilter {
             ip: Some(vec![IpAddr::V6(src_ip), IpAddr::V6(dest_ip)]),
             port: Some(vec![src_port, dest_port]),
@@ -450,7 +450,10 @@ mod tests {
             buffer: None,
         };
 
-        assert!(ipv6_parse(Ipv6Packet::new(&ipv6_packet).unwrap(), &args));
+        assert!(ipv6_parse(
+            Ipv6Packet::new(ipv6_packet.payload()).unwrap(),
+            &args
+        ));
     }
 
     #[test]
