@@ -5,8 +5,6 @@ use regex::Regex;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
-use std::io::Read;
-use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
@@ -220,24 +218,6 @@ fn extract_modified_time(file: &PathBuf) -> io::Result<DateTime<Utc>> {
     let modified_time = metadata.modified()?;
     let datetime = DateTime::<Utc>::from(modified_time);
     Ok(datetime)
-}
-
-fn is_pcap_file(file_path: &Path) -> bool {
-    let mut file = match std::fs::File::open(file_path) {
-        Ok(file) => file,
-        Err(_) => return false, // If the file cannot be opened, assume it's not a PCAP
-    };
-
-    let mut buffer = [0u8; 4]; // Buffer to hold the first four bytes
-    if file.read_exact(&mut buffer).is_err() {
-        return false; // If reading fails, assume it's not a PCAP
-    }
-
-    // Convert the bytes to a u32 using native endian
-    let magic_number = u32::from_le_bytes(buffer);
-
-    // Check if the magic number matches either of the common PCAP headers
-    magic_number == 0xa1b2c3d4 || magic_number == 0xd4c3b2a1
 }
 
 #[cfg(test)]
