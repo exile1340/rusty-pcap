@@ -1,5 +1,7 @@
 // Import required modules
-use rusty_pcap_lib::{api_server, cli::run_cli_search, read_config, Cli, PcapFilter};
+use rusty_pcap_lib::{
+    api_server, cli::run_cli_search, ensure_dir_exists, pcap_agent, read_config, Cli, PcapFilter,
+};
 use structopt::StructOpt;
 
 #[rocket::main]
@@ -9,7 +11,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read the configuration file
     let mut config = match read_config(args.config_file.as_deref().unwrap_or("config.toml")) {
-        Ok(config) => config,
+        Ok(mut config) => {
+            if config.pcap_agent.is_none() {
+                config.pcap_agent = Some(pcap_agent::PcapAgentConfig::default());
+            };
+            config
+        }
         Err(err) => {
             eprintln!("Failed to read config file: {}.\nPlease provide the path to the file with --config or run the application from a directory containing the config.toml file.", err);
             std::process::exit(1);
@@ -64,12 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Logging level set to {}", log_level);
 
-    // Determine if the server should be started
+    // Determine if the server or pcap_agetn should be started
     let run_server = args.server || config.enable_server.unwrap();
-    log::info!(
-        "Running in {} mode",
-        if run_server { "Server" } else { "CLI" }
-    );
+    let run_pcap_agent = config.pcap_agent.clone().unwrap().enable;
 
     // If no pcap_directory was specified in the config file, try to use the directory specified in the command line arguments
     // If no directory was specified at all, exit the program with an error
@@ -85,13 +89,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::debug!("Config: \n{}", &config);
 
-    // If the server is not enabled, run a CLI search
-    // If the server is enabled, start the API server
-    if !run_server {
-        run_cli_search(pcap_filter, args, &config)?;
-    } else {
+    let mut tasks = Vec::new();
+
+    match ensure_dir_exists(&config.output_directory.clone().unwrap()) {
+        Ok(_) => log::info!("Pcap output directory exists or was created successfully"),
+        Err(e) => log::error!("Failed to create outpu directory: {}", e),
+    }
+
+    // If the pcap_agent is enabled, start the pcap_agent task
+    if run_pcap_agent {
+        log::info!("Starting Pcap Agent...");
+        let mut pcap_config = config.pcap_agent.clone().unwrap();
+        pcap_config.output_directory = config.output_directory.clone();
+        pcap_config.pcap_directory = config.pcap_directory.clone();
+        let task = tokio::spawn(async move {
+            if let Err(e) = rusty_pcap_lib::pcap_agent::pcap_agent(pcap_config).await {
+                log::error!("Error in pcap_agent: {}", e);
+            }
+        });
+        tasks.push(task);
+    }
+
+    // If the server is enabled, start the server task
+    if run_server {
         log::info!("Starting API server...");
-        api_server::rocket(config).launch().await?;
+        let task = tokio::spawn(async move {
+            if let Err(e) = api_server::rocket(config).launch().await {
+                log::error!("Error in API server: {}", e);
+            }
+        });
+        tasks.push(task);
+    } else if !run_pcap_agent {
+        // If neither the server nor the pcap_agent is enabled, run the CLI search
+        run_cli_search(pcap_filter, args, &config)?;
+    }
+
+    // Wait for all tasks to complete
+    for task in tasks {
+        let _ = task.await;
     }
 
     Ok(())
