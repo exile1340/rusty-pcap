@@ -53,7 +53,7 @@ jobs:
             run: rustup target add $TARGET
           - name: Install musl-tools (Linux only)
             if: startsWith(matrix.os, 'ubuntu')
-            run: sudo apt-get update && sudo apt-get install -y musl-tools
+            run: sudo apt-get update && sudo apt-get install -y musl-tools pkg-config libssl-dev
           - name: Run build
             run: cargo build --release --verbose --target $TARGET
           - name: List target
