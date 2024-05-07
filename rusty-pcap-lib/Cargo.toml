@@ -28,3 +28,8 @@ tokio-util = { version = "0.7.10", features = ["full"] }
 native-tls = "0.2.11"
 hostname = "0.4.0"
 sysinfo = "0.30.11"
+
+[dependencies.openssl-sys]
+version = "0.9.102"
+features = ["vendored"]
+
