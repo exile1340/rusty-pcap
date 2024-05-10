@@ -87,13 +87,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     }
 
+    match ensure_dir_exists(&config.pcap_directory.clone().unwrap()) {
+        Ok(_) => log::info!("Pcap directory exists"),
+        Err(e) => {
+            log::error!("Failed to find the pcap directory: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     log::debug!("Config: \n{}", &config);
 
     let mut tasks = Vec::new();
 
     match ensure_dir_exists(&config.output_directory.clone().unwrap()) {
         Ok(_) => log::info!("Pcap output directory exists or was created successfully"),
-        Err(e) => log::error!("Failed to create outpu directory: {}", e),
+        Err(e) => {
+            log::error!("Failed to find the output directory: {}", e);
+            std::process::exit(1);
+        }
     }
 
     // If the pcap_agent is enabled, start the pcap_agent task

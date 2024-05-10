@@ -178,7 +178,11 @@ pub fn read_config(config_path: &str) -> Result<Config, Box<dyn std::error::Erro
 pub fn ensure_dir_exists(dir: &str) -> std::io::Result<()> {
     let path = Path::new(dir);
     if !path.exists() {
-        fs::create_dir_all(path)?; // create_dir_all is used to create the directory and all its parent directories if they do not exist
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Directory does not exist",
+        ));
+        //fs::create_dir_all(path)?; // create_dir_all is used to create the directory and all its parent directories if they do not exist
     }
     Ok(())
 }

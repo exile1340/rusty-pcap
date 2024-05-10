@@ -47,6 +47,7 @@ pub struct PcapAgentConfig {
     pub output_directory: Option<String>,
     pub disk_space_checkin: u16,
     pub file_checkin: u16,
+    pub buffer: Option<String>,
 }
 
 // Implement the default trait for PcapAgentConfig
@@ -68,6 +69,7 @@ impl Default for PcapAgentConfig {
             output_directory: Some(String::from("")),
             disk_space_checkin: 300,
             file_checkin: 300,
+            buffer: Some(String::from("300s")),
         }
     }
 }
@@ -512,15 +514,15 @@ async fn xscript_request(
     let raw_data_file = request[9].as_str();
     let _type = request[10].as_str();
 
-    debug!("Request from Sguil: {:?}", request);
+    info!("Request from Sguil: {:?}", request);
     // Create config for get_pcap
     // Need to improve config handling
     let search_config: crate::Config = crate::Config {
         pcap_directory: Some(config.pcap_directory.clone().unwrap()),
         output_directory: Some(config.output_directory.clone().unwrap()),
-        log_level: Some("debug".to_string()),
+        log_level: Some("info".to_string()),
         enable_server: Some(false),
-        search_buffer: Some("300s".to_string()),
+        search_buffer: Some(config.buffer.clone().unwrap()),
         server: None,
         enable_cors: false,
         pcap_agent: None,
