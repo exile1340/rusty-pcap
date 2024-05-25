@@ -13,7 +13,7 @@ pcap_directory = "/mnt/nsm/pcap/pillarofautumn/dailylogs/"
 output_directory = "output"
 
 # Enable the the API server to recieve pcap search requests
-enable_server = true
+enable_server = false
 
 # How far backward and forwards should we search on the timestamp of the flow
 # i.e. 30s "s" seconds, "m" minutes, "h" hours, "d" days
@@ -34,11 +34,11 @@ port = 8000
 [pcap_agent]
 enable = true
 sguil_version = "SGUIL-1.0.0"
-server = "10.1.1.217"
+server = "127.0.0.1"
 port = "7736"
 ping_interval = 30
 agent_type = "pcap"
-sensor_name = "pillarofautumn"
+sensor_name = "sensor_name"
 sensor_net = "Int_Net"
 disk_space_checkin = 300
 file_checkin = 300

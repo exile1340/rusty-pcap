@@ -3,8 +3,8 @@ use chrono::{DateTime, Duration, FixedOffset, LocalResult, TimeZone, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::ffi::OsStr;
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, Read};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
@@ -114,6 +114,33 @@ pub fn parse_duration(input: &str) -> i64 {
     }
 }
 
+// Function to check if a file is a pcap file
+fn is_pcap_file(file: &PathBuf) -> bool {
+    // Check if the file extension is pcap return true
+    if file.extension().and_then(std::ffi::OsStr::to_str) == Some("pcap") {
+        return true;
+    }
+    // Check if the file name contains pcap and then validate the magic number
+    if file
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("")
+        .contains("pcap")
+    {
+        let mut f = match File::open(file) {
+            Ok(file) => file,
+            Err(_) => return false,
+        };
+        let mut magic_number = [0; 4];
+        if f.read_exact(&mut magic_number).is_err() {
+            return false;
+        }
+        return magic_number == [0xa1, 0xb2, 0xc3, 0xd4]
+            || magic_number == [0xd4, 0xc3, 0xb2, 0xa1];
+    }
+    false
+}
+
 // Function to return all pcap files in the directory that match the conditions
 pub fn directory(
     path: PathBuf,
@@ -140,7 +167,7 @@ pub fn directory(
         if path_buf.is_dir() {
             let nested_output = directory(path_buf, time, buffer)?;
             matching_files.extend(nested_output);
-        } else if path_buf.extension().and_then(std::ffi::OsStr::to_str) == Some("pcap") {
+        } else if is_pcap_file(&path_buf) {
             let file_name_os_str = &path_buf.file_name();
             let path_str = file_name_os_str.and_then(OsStr::to_str).unwrap();
             let last_modified = extract_modified_time(&path_buf)?;

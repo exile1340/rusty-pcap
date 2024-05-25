@@ -113,8 +113,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut pcap_config = config.pcap_agent.clone().unwrap();
         pcap_config.output_directory = config.output_directory.clone();
         pcap_config.pcap_directory = config.pcap_directory.clone();
+        pcap_config.buffer = config.search_buffer.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = rusty_pcap_lib::pcap_agent::pcap_agent(pcap_config).await {
+            if let Err(e) = rusty_pcap_lib::pcap_agent::pcap_agent_manager(pcap_config).await {
                 log::error!("Error in pcap_agent: {}", e);
             }
         });
