@@ -22,14 +22,25 @@ fn _packet_time(pcap: &PcapPacket) -> String {
 fn ipv4_parse(ip_packet: Ipv4Packet, args: &PcapFilter) -> bool {
     let v4_packet = ip_packet;
 
-    // Check if packet contains the IP from args.ip
-    if let Some(ips) = &args.ip {
-        if !ips.is_empty()
-            && !ips
-                .iter()
-                .any(|&ip| ip == v4_packet.get_source() || ip == v4_packet.get_destination())
-        {
+    // for the first ip in args.ip, check if it is equal to the source or destination of the packet
+    // if it is not, return false
+    // if it is, continue to the second ip in args.ip
+
+    if let Some(ip) = &args.ip {
+        // can't have more than 2 ips
+        if ip.len() > 2 {
             return false;
+        } else if ip.len() == 1 {
+            if ip[0] != v4_packet.get_source() && ip[0] != v4_packet.get_destination() {
+                return false;
+            }
+        } else if ip.len() == 2 {
+            if ip[0] != v4_packet.get_source() && ip[0] != v4_packet.get_destination() {
+                return false;
+            }
+            if ip[1] != v4_packet.get_source() && ip[1] != v4_packet.get_destination() {
+                return false;
+            }
         }
     }
 
@@ -60,14 +71,21 @@ fn ipv4_parse(ip_packet: Ipv4Packet, args: &PcapFilter) -> bool {
 fn ipv6_parse(ip_packet: Ipv6Packet, args: &PcapFilter) -> bool {
     let v6_packet = ip_packet;
 
-    // Check if packet contains the IP from args.ip
-    if let Some(ips) = &args.ip {
-        if !ips.is_empty()
-            && !ips
-                .iter()
-                .any(|&ip| ip == v6_packet.get_source() || ip == v6_packet.get_destination())
-        {
+    if let Some(ip) = &args.ip {
+        // can't have more than 2 ips
+        if ip.len() > 2 {
             return false;
+        } else if ip.len() == 1 {
+            if ip[0] != v6_packet.get_source() && ip[0] != v6_packet.get_destination() {
+                return false;
+            }
+        } else if ip.len() == 2 {
+            if ip[0] != v6_packet.get_source() && ip[0] != v6_packet.get_destination() {
+                return false;
+            }
+            if ip[1] != v6_packet.get_source() && ip[1] != v6_packet.get_destination() {
+                return false;
+            }
         }
     }
 

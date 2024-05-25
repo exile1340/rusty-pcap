@@ -87,13 +87,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     }
 
+    match ensure_dir_exists(&config.pcap_directory.clone().unwrap()) {
+        Ok(_) => log::info!("Pcap directory exists"),
+        Err(e) => {
+            log::error!("Failed to find the pcap directory: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     log::debug!("Config: \n{}", &config);
 
     let mut tasks = Vec::new();
 
     match ensure_dir_exists(&config.output_directory.clone().unwrap()) {
         Ok(_) => log::info!("Pcap output directory exists or was created successfully"),
-        Err(e) => log::error!("Failed to create outpu directory: {}", e),
+        Err(e) => {
+            log::error!("Failed to find the output directory: {}", e);
+            std::process::exit(1);
+        }
     }
 
     // If the pcap_agent is enabled, start the pcap_agent task
@@ -102,8 +113,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut pcap_config = config.pcap_agent.clone().unwrap();
         pcap_config.output_directory = config.output_directory.clone();
         pcap_config.pcap_directory = config.pcap_directory.clone();
+        pcap_config.buffer = config.search_buffer.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = rusty_pcap_lib::pcap_agent::pcap_agent(pcap_config).await {
+            if let Err(e) = rusty_pcap_lib::pcap_agent::pcap_agent_manager(pcap_config).await {
                 log::error!("Error in pcap_agent: {}", e);
             }
         });

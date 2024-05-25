@@ -18,6 +18,8 @@ use serde::Serialize;
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -28,6 +30,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::oneshot;
 use tokio_native_tls::{TlsConnector, TlsStream};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -47,6 +50,7 @@ pub struct PcapAgentConfig {
     pub output_directory: Option<String>,
     pub disk_space_checkin: u16,
     pub file_checkin: u16,
+    pub buffer: Option<String>,
 }
 
 // Implement the default trait for PcapAgentConfig
@@ -68,6 +72,7 @@ impl Default for PcapAgentConfig {
             output_directory: Some(String::from("")),
             disk_space_checkin: 300,
             file_checkin: 300,
+            buffer: Some(String::from("300s")),
         }
     }
 }
@@ -96,9 +101,55 @@ impl FromStr for SguilCommand {
     }
 }
 
+pub async fn pcap_agent_manager(config: PcapAgentConfig) -> io::Result<()> {
+    // Token to stop the pcap agent permanently
+    let should_stop = CancellationToken::new();
+
+    // Token to track if the sguild server has crashed
+    let sguild_crashed = Arc::new(AtomicBool::new(true));
+
+    // if we haven't given the command to stop, we will keep running the pcap_agent
+    // if a network error occurs, stop all the threads currently running
+    // start a new pcap agent process
+
+    // which should_stop is not cancelled, keep restarting the pcap agent
+    while !should_stop.is_cancelled() {
+        // check if sguild has crashed
+        if sguild_crashed.load(Ordering::Relaxed) {
+            info!("Restarting the pcap agent...");
+            // start a new pcap agent process
+            // wait for all previous threads to stop
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let cloned_config = config.clone();
+            let cloned_should_stop = should_stop.clone();
+            let cloned_sguild_crashed = sguild_crashed.clone();
+            sguild_crashed.store(false, Ordering::Relaxed);
+            tokio::spawn(async move {
+                pcap_agent(cloned_config, cloned_should_stop, cloned_sguild_crashed).await
+            });
+        }
+        //}
+
+        // wait for 5 seconds before checking if sguild has crashed
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    info!("Pcap agent manager stopped...");
+
+    Ok(())
+}
+
 // Function to start the pcap agent
-pub async fn pcap_agent(config: PcapAgentConfig) -> io::Result<()> {
+pub async fn pcap_agent(
+    config: PcapAgentConfig,
+    should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
+) -> io::Result<()> {
+    info!("Starting pcap agent process...");
+    let ping_interval = config.ping_interval;
+    let task_tracker = TaskTracker::new();
+
     // connect to the sguil server
+    info!("Connecting to sguil server...");
     let stream = sguil_connect(config.clone()).await?;
 
     // Legacy code to improve
@@ -106,10 +157,6 @@ pub async fn pcap_agent(config: PcapAgentConfig) -> io::Result<()> {
     let response = read_line(&mut reader).await?;
     debug!("Received response: {}", response.trim());
     let stream = reader.into_inner();
-
-    let ping_interval = config.ping_interval;
-    let should_stop = CancellationToken::new();
-    let task_tracker = TaskTracker::new();
 
     let (stream_reader, stream_writer) = tokio::io::split(stream);
 
@@ -121,12 +168,37 @@ pub async fn pcap_agent(config: PcapAgentConfig) -> io::Result<()> {
     let _ = reader_tx.send(response).await;
 
     // Spawn the reader, writer, command processing, and ping tasks.
-    task_tracker.spawn(spawn_reader_task(should_stop.clone(), stream_reader, reader_tx).await);
-    task_tracker.spawn(ping_task(should_stop.clone(), command_tx.clone(), ping_interval).await);
-    task_tracker.spawn(writer_task(should_stop.clone(), stream_writer, writer_rx).await);
+    task_tracker.spawn(
+        spawn_reader_task(
+            should_stop.clone(),
+            sguild_crashed.clone(),
+            stream_reader,
+            reader_tx,
+        )
+        .await,
+    );
+    task_tracker.spawn(
+        ping_task(
+            should_stop.clone(),
+            sguild_crashed.clone(),
+            command_tx.clone(),
+            ping_interval,
+        )
+        .await,
+    );
+    task_tracker.spawn(
+        writer_task(
+            should_stop.clone(),
+            sguild_crashed.clone(),
+            stream_writer,
+            writer_rx,
+        )
+        .await,
+    );
     task_tracker.spawn(
         command_task(
             should_stop.clone(),
+            sguild_crashed.clone(),
             command_rx,
             command_tx.clone(),
             config.clone(),
@@ -136,6 +208,7 @@ pub async fn pcap_agent(config: PcapAgentConfig) -> io::Result<()> {
     task_tracker.spawn(
         disk_report(
             should_stop.clone(),
+            sguild_crashed.clone(),
             command_tx.clone(),
             config.pcap_directory.clone().unwrap(),
             config.disk_space_checkin,
@@ -145,12 +218,26 @@ pub async fn pcap_agent(config: PcapAgentConfig) -> io::Result<()> {
     task_tracker.spawn(
         last_pcap_time(
             should_stop.clone(),
+            sguild_crashed.clone(),
             command_tx.clone(),
             config.pcap_directory.unwrap(),
             config.file_checkin,
         )
         .await,
     );
+
+    // Handle sguild crashing
+    let (stop_sender, stop_receiver) = oneshot::channel();
+    let stop_flag_clone = Arc::clone(&sguild_crashed);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await; // Check every 100ms
+            if stop_flag_clone.load(Ordering::Relaxed) {
+                let _ = stop_sender.send(());
+                break;
+            }
+        }
+    });
 
     // Handle SIGINT and SIGTERM signals.
     let ctrl_c = tokio::signal::ctrl_c();
@@ -169,6 +256,9 @@ pub async fn pcap_agent(config: PcapAgentConfig) -> io::Result<()> {
         _ = term_signal.recv() => {
             warn!("Received termination signal...");
             should_stop.cancel();
+        }
+        _ = stop_receiver => {
+            warn!("Sguild crash, shutting down pcap agent...");
         }
     }
 
@@ -226,10 +316,8 @@ async fn register_agent(
             error!("Unable to send registration string: {}", e);
         }
     }
-    //let _ = stream.write(data.as_bytes()).await?;
 
-    return Ok(stream);
-    //return Ok(reader.into_inner());
+    Ok(stream)
 }
 
 // Function to set up the TLS stream
@@ -262,12 +350,13 @@ async fn set_up_tls(
 // Function to spawn the reader task
 async fn spawn_reader_task(
     should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
     stream_reader: tokio::io::ReadHalf<TlsStream<TcpStream>>,
     reader_tx: Sender<String>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut reader = tokio::io::BufReader::new(stream_reader);
-        loop {
+        while !sguild_crashed.load(Ordering::SeqCst) {
             let mut buffer = String::new();
             tokio::select! {
             result = reader.read_line(&mut buffer) => {
@@ -277,7 +366,8 @@ async fn spawn_reader_task(
                         }
                         Err(e) => {
                             error!("Failed to read from stream: {}", e);
-                            break;
+                            sguild_crashed.store(true, Ordering::SeqCst);
+                            break
                         }
                     }
                 }
@@ -293,16 +383,18 @@ async fn spawn_reader_task(
 // Function to send ping to the sguil server
 async fn ping_task(
     should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
     command_tx: Sender<String>,
     ping_interval: u64,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
+        while !sguild_crashed.load(Ordering::SeqCst) {
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(ping_interval)) => {
                     let data = "PING\n";
                     if let Err(e) = command_tx.send(data.to_string()).await {
                         error!("Failed to send ping: {}", e);
+                        sguild_crashed.store(true, Ordering::SeqCst);
                         break;
                     }
                 }
@@ -337,12 +429,13 @@ fn most_recent_file(path: &str) -> io::Result<String> {
 // Function to get the most recent pcap file on a regular interval
 async fn last_pcap_time(
     should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
     command_tx: Sender<String>,
     pcap_directory: String,
     last_pcap_interval: u16,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
+        while !sguild_crashed.load(Ordering::SeqCst) {
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(last_pcap_interval.into())) => {
                     match most_recent_file(pcap_directory.as_str()) {
@@ -350,6 +443,7 @@ async fn last_pcap_time(
                             let data = format!("LastPcapTime {{{}}}\n", time);
                             if let Err(e) = command_tx.send(data.to_string()).await {
                                 error!("Failed to send last pcap time: {}", e);
+                                sguild_crashed.store(true, Ordering::SeqCst);
                                 break;
                             }
                         }
@@ -370,17 +464,19 @@ async fn last_pcap_time(
 // Function to get disk space usage on a regualar interval
 async fn disk_report(
     should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
     command_tx: Sender<String>,
     pcap_directory: String,
     disk_interval: u16,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
+        while !sguild_crashed.load(Ordering::SeqCst) {
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(disk_interval.into())) => {
                     let data = format!("DiskReport {}", disk_space(pcap_directory.clone()));
                     if let Err(e) = command_tx.send(data.to_string()).await {
                         error!("Failed to send disk report: {}", e);
+                        sguild_crashed.store(true, Ordering::SeqCst);
                         break;
                     }
                 }
@@ -396,16 +492,18 @@ async fn disk_report(
 // Function to send data to the sguil server
 async fn writer_task(
     should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
     mut stream_writer: tokio::io::WriteHalf<TlsStream<TcpStream>>,
     mut writer_rx: mpsc::Receiver<String>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
+        while !sguild_crashed.load(Ordering::SeqCst) {
             tokio::select! {
                 Some(message) = writer_rx.recv() => {
                     info!("Sending: {}", message.trim());
                     if let Err(e) = stream_writer.write(message.as_bytes()).await {
                         error!("Failed to write to stream: {}", e);
+                        sguild_crashed.store(true, Ordering::SeqCst);
                         break;
                     }
                 }
@@ -422,14 +520,18 @@ async fn writer_task(
 // and send processed command to the command transmiitter channel
 async fn command_task(
     should_stop: CancellationToken,
+    sguild_crashed: Arc<AtomicBool>,
     mut command_rx: mpsc::Receiver<String>,
     command_tx: mpsc::Sender<String>,
     config: PcapAgentConfig,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        loop {
+        while !sguild_crashed.load(Ordering::SeqCst) {
             tokio::select! {
                 Some(command) = command_rx.recv() => {
+                    if command.trim().is_empty() {
+                        continue;
+                    }
                     info!("Received: {}", command.trim());
                     let re = regex::Regex::new(r#"(\{[^}]*\}|\S+)"#).unwrap();
                     let request: Vec<&str> = re.find_iter(command.trim())
@@ -473,7 +575,6 @@ async fn process_command(
             let request: Vec<String> = request.into_iter().map(|s| s.to_string()).collect();
             let config = config.clone();
             tokio::spawn(async move { xscript_request(request, config, command_tx).await });
-            //Some("XscriptResponse\n".to_string())
             None
         }
         SguilCommand::AgentInfo => {
@@ -512,15 +613,15 @@ async fn xscript_request(
     let raw_data_file = request[9].as_str();
     let _type = request[10].as_str();
 
-    debug!("Request from Sguil: {:?}", request);
+    info!("Request from Sguil: {:?}", request);
     // Create config for get_pcap
     // Need to improve config handling
     let search_config: crate::Config = crate::Config {
         pcap_directory: Some(config.pcap_directory.clone().unwrap()),
         output_directory: Some(config.output_directory.clone().unwrap()),
-        log_level: Some("debug".to_string()),
+        log_level: Some("info".to_string()),
         enable_server: Some(false),
-        search_buffer: Some("300s".to_string()),
+        search_buffer: Some(config.buffer.clone().unwrap()),
         server: None,
         enable_cors: false,
         pcap_agent: None,
@@ -561,6 +662,9 @@ async fn xscript_request(
             error!("Failed to send pcap to sguil: {}", e);
         }
     }
+    let _ = command_tx
+        .send(format!("XscriptResponse {} {{Done}}\n", trans_id).to_string())
+        .await;
 
     Ok(())
 }
@@ -684,6 +788,7 @@ async fn send_data(
                     }
                     if let Err(e) = stream.write_all(&buffer[..n]).await {
                         error!("Failed sending pcap file to sguil: {}", e);
+                        break;
                     }
                 }
                 Err(e) => {
@@ -692,7 +797,7 @@ async fn send_data(
                 }
             }
             // Sguild will drop packets if the file is sent too fast
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
 
         info!("Finished sending pcap file to sguil...");

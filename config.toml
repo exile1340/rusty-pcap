@@ -13,12 +13,12 @@ pcap_directory = "/mnt/nsm/pcap/pillarofautumn/dailylogs/"
 output_directory = "output"
 
 # Enable the the API server to recieve pcap search requests
-enable_server = true
+enable_server = false
 
 # How far backward and forwards should we search on the timestamp of the flow
 # i.e. 30s "s" seconds, "m" minutes, "h" hours, "d" days
 # default is 0s
-search_buffer = "0s"
+search_buffer = "30s"
 
 # Enable cross origin requests
 enable_cors = true
@@ -32,13 +32,13 @@ port = 8000
 #cert = "server.crt" # Path or bytes to DER-encoded X.509 TLS cert chain.]
 
 [pcap_agent]
-enable = false
+enable = true
 sguil_version = "SGUIL-1.0.0"
 server = "127.0.0.1"
 port = "7736"
 ping_interval = 30
 agent_type = "pcap"
-sensor_name = "sensor1"
+sensor_name = "sensor_name"
 sensor_net = "Int_Net"
 disk_space_checkin = 300
 file_checkin = 300
