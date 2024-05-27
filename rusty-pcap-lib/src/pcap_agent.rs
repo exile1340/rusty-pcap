@@ -1,4 +1,20 @@
 /*
+ * This file is part of rusty-pcap.
+ *
+ * rusty-pcap is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version.
+ *
+ * rusty-pcap is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * rusty-pcap. If not, see <https://www.gnu.org/licenses/>.
+ */
+ 
+/*
  * This file contains the implementation of the Pcap Agent, this is a drop in replacement
  * for the pcap_agent.tcl script from Sguil https://github.com/bammv/sguil.
  * The agent connects to the Sguil server and listens for commands, it can also send data back to the server.
@@ -517,7 +533,7 @@ async fn writer_task(
 }
 
 // Function to process commands from the command reader channel
-// and send processed command to the command transmiitter channel
+// and send processed command to the command transmitter channel
 async fn command_task(
     should_stop: CancellationToken,
     sguild_crashed: Arc<AtomicBool>,
@@ -586,7 +602,7 @@ async fn process_command(
     }
 }
 
-// Funcation to process XscriptRequest
+// Function to process XscriptRequest
 async fn xscript_request(
     request: std::vec::Vec<String>,
     config: PcapAgentConfig,

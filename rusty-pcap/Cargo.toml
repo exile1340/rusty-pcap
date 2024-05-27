@@ -25,7 +25,3 @@ tokio = { version = "1", features = ["full"] }
 lazy_static = "1.4.0"
 tempfile = "3.10"
 rusty-pcap-lib = { path = "../rusty-pcap-lib"}
-
-[[examples]]
-name = "server_example"
-path = "example/server_example.rs"
