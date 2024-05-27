@@ -1,4 +1,24 @@
-// lib.rs
+/*
+ * This file is part of rusty-pcap.
+ *
+ * rusty-pcap is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation, either version 3 of the License, or (at your option) any later
+ * version.
+ *
+ * rusty-pcap is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * rusty-pcap. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * This file contains the code that handles rusty pcap lib setup.
+ */
+
+// Import necessary libraries and modules
 #![allow(clippy::blocks_in_conditions)]
 pub mod api_server;
 pub mod cli;
@@ -182,7 +202,8 @@ pub fn ensure_dir_exists(dir: &str) -> std::io::Result<()> {
             std::io::ErrorKind::NotFound,
             "Directory does not exist",
         ));
-        //fs::create_dir_all(path)?; // create_dir_all is used to create the directory and all its parent directories if they do not exist
+        //fs::create_dir_all(path)?; // create_dir_all is used to create the
+        //directory and all its parent directories if they do not exist
     }
     Ok(())
 }
