@@ -7,3 +7,4 @@ firedbg
 .DS_Store
 config.local.toml
 certs/
+*.pcap
