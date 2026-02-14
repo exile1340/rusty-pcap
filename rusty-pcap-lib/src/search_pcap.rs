@@ -22,8 +22,8 @@
 // Import necessary libraries and modules
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Duration, FixedOffset, LocalResult, TimeZone, Utc};
-use lazy_static::lazy_static;
 use regex::Regex;
+use std::sync::LazyLock;
 use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -31,9 +31,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Instant;
 
-lazy_static! {
-    static ref RE: Regex = Regex::new(r"(\d{10})").unwrap();
-}
+static RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\d{10})").unwrap());
 
 // Define the custom error for the parsing of the BufferUnit enum
 #[derive(Debug)]

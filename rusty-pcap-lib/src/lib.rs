@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
 use std::path::Path;
-use structopt::StructOpt;
+use clap::Parser;
 
 // Define a configuration struct for server settings
 #[derive(Debug, Deserialize, Serialize)]
@@ -126,65 +126,65 @@ impl Default for PcapFilter {
     }
 }
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 pub struct Cli {
-    #[structopt(help = "Config file", short = "c", long = "config")]
+    #[arg(help = "Config file", short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    #[structopt(
+    #[arg(
         help = "PCAP file to parse",
-        short = "f",
+        short = 'f',
         long = "file",
         conflicts_with = "pcap_dir"
     )]
     pub pcap_file: Option<std::path::PathBuf>,
 
-    #[structopt(
+    #[arg(
         help = "Directory for Suricata PCAP files",
-        short = "l",
+        short = 'l',
         long = "pcap_dir",
         conflicts_with = "pcap_file"
     )]
     pub pcap_dir: Option<String>,
 
-    #[structopt(
+    #[arg(
         help = "Timestamp of the flow",
         long = "ts",
         conflicts_with = "no_timestamp"
     )]
     pub timestamp: Option<String>,
 
-    #[structopt(help = "IP to filter on", long = "ip", multiple = true)]
+    #[arg(help = "IP to filter on", long = "ip")]
     pub ip: Vec<std::net::IpAddr>,
 
-    #[structopt(help = "Source IP to filter on", long = "src_ip")]
+    #[arg(help = "Source IP to filter on", long = "src_ip")]
     pub src_ip: Option<std::net::IpAddr>,
 
-    #[structopt(help = "Destination IP to filter on", long = "dest_ip")]
+    #[arg(help = "Destination IP to filter on", long = "dest_ip")]
     pub dest_ip: Option<std::net::IpAddr>,
 
-    #[structopt(help = "Source port to filter on", long = "src_port")]
+    #[arg(help = "Source port to filter on", long = "src_port")]
     pub src_port: Option<u16>,
 
-    #[structopt(help = "Destination port to filter on", long = "dest_port")]
+    #[arg(help = "Destination port to filter on", long = "dest_port")]
     pub dest_port: Option<u16>,
 
-    #[structopt(help = "Port to filter on", long = "port", multiple = true)]
+    #[arg(help = "Port to filter on", long = "port")]
     pub port: Vec<u16>,
 
-    #[structopt(
+    #[arg(
         help = "Log level (e.g., debug, info, warn, error)",
         long = "log-level"
     )]
     pub log_level: Option<String>,
 
-    #[structopt(
+    #[arg(
         help = "If no timestamp is given, use this flag to search all pcap files",
         long = "no-timestamp"
     )]
     pub no_timestamp: bool,
 
-    #[structopt(help = "Run API server", long = "server")]
+    #[arg(help = "Run API server", long = "server")]
     pub server: bool,
 }
 // Function to read configuration from a file

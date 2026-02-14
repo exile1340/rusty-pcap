@@ -18,12 +18,12 @@
 use rusty_pcap_lib::{
     api_server, cli::run_cli_search, ensure_dir_exists, pcap_agent, read_config, Cli, PcapFilter,
 };
-use structopt::StructOpt;
+use clap::Parser;
 
 #[rocket::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
-    let args = Cli::from_args();
+    let args = Cli::parse();
 
     // Read the configuration file
     let mut config = match read_config(args.config_file.as_deref().unwrap_or("config.toml")) {
