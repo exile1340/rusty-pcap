@@ -49,7 +49,7 @@ fn if_full_path(path: Option<&str>) -> bool {
 pub fn pcap_to_write(args: &PcapFilter, output_dir: Option<&str>) -> PcapWriter<File> {
     // Get current directory
     let mut full_path;
-    let current_dir = env::current_dir().unwrap();
+    let current_dir = env::current_dir().expect("Failed to get current directory");
     if !is_valid_path(output_dir) {
         full_path = current_dir;
         log::error!("Output pcap directory does not exist: {:?}", output_dir);
@@ -65,16 +65,10 @@ pub fn pcap_to_write(args: &PcapFilter, output_dir: Option<&str>) -> PcapWriter<
     log::info!("Pcap file to write {:?}", full_path);
 
     // Create the new pcap file
-    let temp_file = File::create(full_path).unwrap();
-    let pcap_writer = PcapWriter::new(temp_file);
-    // If the pcap writer was successfully created, return it. Otherwise, log an error and exit the program.
-    match pcap_writer {
-        Ok(pcap_writer) => pcap_writer,
-        _pcap_error => {
-            log::error!("Something went wrong getting pcap file to write");
-            std::process::exit(1);
-        }
-    }
+    let temp_file = File::create(&full_path)
+        .unwrap_or_else(|e| panic!("Failed to create pcap output file {:?}: {}", full_path, e));
+    PcapWriter::new(temp_file)
+        .unwrap_or_else(|e| panic!("Failed to initialize pcap writer for {:?}: {}", full_path, e))
 }
 
 /// Function to generate a file name based on the provided PcapFilter information
@@ -107,28 +101,28 @@ pub fn filter_to_name(args: &PcapFilter) -> String {
     }
 
     // Add source IPs to the file name
-    for ip in &args.src_ip {
+    if let Some(ip) = &args.src_ip {
         file_name.push_str("src-ip-");
         file_name.push_str(&ip.to_string());
         file_name.push('_');
     }
 
     // Add source ports to the file name
-    for port in &args.src_port {
+    if let Some(port) = &args.src_port {
         file_name.push_str("src-port-");
         file_name.push_str(&port.to_string());
         file_name.push('_');
     }
 
     // Add destination IPs to the file name
-    for ip in &args.dest_ip {
+    if let Some(ip) = &args.dest_ip {
         file_name.push_str("dest-ip-");
         file_name.push_str(&ip.to_string());
         file_name.push('_');
     }
 
     // Add destination ports to the file name
-    for port in &args.dest_port {
+    if let Some(port) = &args.dest_port {
         file_name.push_str("dest-port-");
         file_name.push_str(&port.to_string());
         file_name.push('_');
@@ -222,9 +216,9 @@ mod tests {
         }
 
         #[test]
-        fn exits_program_if_pcap_writer_not_created() {
-            // set directory to somewhere it doesn't have permissions
-            let temp_dir_path = "/bin";
+        fn panics_if_pcap_writer_cannot_be_created() {
+            // /proc exists and is_valid_path returns true, but writing files there fails
+            let temp_dir_path = "/proc";
             let args = PcapFilter {
                 timestamp: None,
                 ip: Some(vec![]),
@@ -236,7 +230,7 @@ mod tests {
                 buffer: None,
             };
 
-            // Act
+            // Act - should panic since /proc is a virtual filesystem that doesn't allow file creation
             let result = std::panic::catch_unwind(|| {
                 pcap_to_write(&args, Some(temp_dir_path));
             });

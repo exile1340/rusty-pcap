@@ -26,7 +26,6 @@ use crate::write_pcap::pcap_to_write;
 use crate::Cli;
 use crate::Config;
 use crate::PcapFilter;
-use chrono::DateTime;
 use pcap_file::pcap::PcapReader;
 use std::fs::File;
 use std::path::PathBuf;
@@ -63,9 +62,9 @@ pub fn run_cli_search(
     let mut pcap_writer = pcap_to_write(&filter, config.output_directory.as_deref());
 
     // If a single pcap file was provided, only search that file
-    if args.pcap_file.is_some() {
-        log::info!("Searching single pcap file {:?}", args.pcap_file);
-        let file_name = File::open(args.pcap_file.as_ref().unwrap().as_path())?;
+    if let Some(ref pcap_file) = args.pcap_file {
+        log::info!("Searching single pcap file {:?}", pcap_file);
+        let file_name = File::open(pcap_file.as_path())?;
         let mut pcap_reader = PcapReader::new(file_name)?;
         while let Some(Ok(packet)) = pcap_reader.next_packet() {
             if packet_parse::packet_parse(&packet, &filter) {
@@ -86,10 +85,11 @@ pub fn run_cli_search(
             .collect();
         let mut file_list: Vec<PathBuf> = Vec::new();
         for dir in pcap_directory {
+            let search_time = search_pcap::parse_time_field(&timestamp)?;
             file_list.extend(
                 search_pcap::directory(
                     PathBuf::from(&dir),
-                    DateTime::parse_from_str(&timestamp.clone(), "0")?,
+                    search_time,
                     config.search_buffer.as_ref().unwrap_or(&"0".to_string()),
                 )
                 .unwrap_or_else(|_| {

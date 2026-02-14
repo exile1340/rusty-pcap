@@ -42,3 +42,8 @@ sensor_name = "sensor_name"
 sensor_net = "Int_Net"
 disk_space_checkin = 300
 file_checkin = 300
+# TLS certificate settings for the pcap agent connection to sguil server
+# ca_cert = "certs/ca.pem"           # Path to CA certificate for server verification
+# client_cert = "certs/client.pem"   # Path to client certificate for mutual TLS
+# client_key = "certs/client.key"    # Path to client private key for mutual TLS
+# skip_tls_verify = false            # Set to true to skip TLS verification (insecure)

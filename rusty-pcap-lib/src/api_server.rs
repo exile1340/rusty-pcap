@@ -33,7 +33,6 @@ use rocket::fs::NamedFile;
 use rocket::http::Status;
 use rocket::request::{self, FromRequest};
 use rocket::response::status::Custom;
-use rocket::response::{self, Responder};
 use rocket::{get, routes, Build, Request, Rocket};
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::fs::File;
@@ -51,7 +50,6 @@ static PCAP_REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
 
 // Global variable to track number of requests to the server
 static REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
-struct CustomError(&'static str);
 struct UptimeTracker;
 
 #[rocket::async_trait]
@@ -78,15 +76,6 @@ impl<'r> FromRequest<'r> for RequestCounter {
     async fn from_request(_request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         REQUEST_COUNT.fetch_add(1, Ordering::Acquire);
         request::Outcome::Success(RequestCounter)
-    }
-}
-
-impl<'r> Responder<'r, 'static> for CustomError {
-    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
-        response::Response::build()
-            .status(Status::BadRequest)
-            .sized_body(self.0.len(), std::io::Cursor::new(self.0))
-            .ok()
     }
 }
 
