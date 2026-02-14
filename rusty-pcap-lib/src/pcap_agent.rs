@@ -28,6 +28,7 @@ use chrono::{DateTime, Local, NaiveDateTime, Utc};
 use hostname;
 use log::{debug, error, info, warn};
 use native_tls::TlsConnector as NativeTlsConnector;
+use regex::Regex;
 use rocket::fs::NamedFile;
 use serde::Deserialize;
 use serde::Serialize;
@@ -35,8 +36,7 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread::sleep;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use std::time::SystemTime;
 use sysinfo::Disks;
@@ -50,6 +50,9 @@ use tokio::sync::oneshot;
 use tokio_native_tls::{TlsConnector, TlsStream};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+
+static SGUIL_CMD_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(\{[^}]*\}|\S+)"#).unwrap());
 
 // Struct to represent the configuration for the pcap agent
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -67,6 +70,10 @@ pub struct PcapAgentConfig {
     pub disk_space_checkin: u16,
     pub file_checkin: u16,
     pub buffer: Option<String>,
+    pub ca_cert: Option<String>,
+    pub client_cert: Option<String>,
+    pub client_key: Option<String>,
+    pub skip_tls_verify: Option<bool>,
 }
 
 // Implement the default trait for PcapAgentConfig
@@ -79,9 +86,9 @@ impl Default for PcapAgentConfig {
             ping_interval: 30,
             agent_type: String::from("pcap"),
             sensor_name: hostname::get()
-                .expect("Failed to get hostname")
+                .unwrap_or_default()
                 .into_string()
-                .expect("Hostname wasn't valid UTF-8"),
+                .unwrap_or_else(|_| String::from("unknown")),
             sensor_net: String::from("Int_Net"),
             enable: false,
             pcap_directory: Some(String::from("")),
@@ -89,6 +96,10 @@ impl Default for PcapAgentConfig {
             disk_space_checkin: 300,
             file_checkin: 300,
             buffer: Some(String::from("300s")),
+            ca_cert: None,
+            client_cert: None,
+            client_key: None,
+            skip_tls_verify: Some(false),
         }
     }
 }
@@ -295,7 +306,7 @@ async fn preamble(tcp_stream: TcpStream, sguil_version: &str) -> io::Result<TcpS
             "Mismatched versions.\nSERVER: ({})\nAGENT: ({})",
             received_version, sguil_version
         );
-        sleep(Duration::from_millis(15000));
+        tokio::time::sleep(Duration::from_millis(15000)).await;
     }
 
     let data = format!("VersionInfo {{{} OPENSSL ENABLED}}\n", sguil_version);
@@ -339,13 +350,60 @@ async fn register_agent(
 // Function to set up the TLS stream
 async fn set_up_tls(
     tcp_stream: TcpStream,
-    server: &str,
-    port: &str,
+    config: &PcapAgentConfig,
 ) -> io::Result<TlsStream<TcpStream>> {
-    let server_host: String = format!("{}:{}", server, port);
+    let server_host: String = format!("{}:{}", config.server, config.port);
     let mut builder = NativeTlsConnector::builder();
-    builder.danger_accept_invalid_certs(true);
-    let connector = builder.build().unwrap();
+
+    // Only skip TLS verification if explicitly configured
+    if config.skip_tls_verify.unwrap_or(false) {
+        warn!("TLS certificate verification is disabled - this is insecure!");
+        builder.danger_accept_invalid_certs(true);
+    }
+
+    // Load CA certificate if provided
+    if let Some(ca_cert_path) = &config.ca_cert {
+        let ca_cert_pem = std::fs::read(ca_cert_path).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Failed to read CA certificate at {}: {}", ca_cert_path, e),
+            )
+        })?;
+        let ca_cert = native_tls::Certificate::from_pem(&ca_cert_pem).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to parse CA certificate: {}", e),
+            )
+        })?;
+        builder.add_root_certificate(ca_cert);
+    }
+
+    // Load client certificate and key if provided (for future mTLS support)
+    if let (Some(cert_path), Some(key_path)) = (&config.client_cert, &config.client_key) {
+        let cert_pem = std::fs::read(cert_path).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Failed to read client certificate at {}: {}", cert_path, e),
+            )
+        })?;
+        let key_pem = std::fs::read(key_path).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Failed to read client key at {}: {}", key_path, e),
+            )
+        })?;
+        let identity = native_tls::Identity::from_pkcs8(&cert_pem, &key_pem).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Failed to create TLS identity from client cert/key: {}", e),
+            )
+        })?;
+        builder.identity(identity);
+    }
+
+    let connector = builder.build().map_err(|e| {
+        io::Error::other(format!("Failed to build TLS connector: {}", e))
+    })?;
     let connector = TlsConnector::from(connector);
 
     match connector.connect(&server_host, tcp_stream).await {
@@ -355,10 +413,7 @@ async fn set_up_tls(
         }
         Err(e) => {
             error!("Failed TLS connection: {}", e);
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed TLS connection: {}", e),
-            ))
+            Err(io::Error::other(format!("Failed TLS connection: {}", e)))
         }
     }
 }
@@ -549,14 +604,23 @@ async fn command_task(
                         continue;
                     }
                     info!("Received: {}", command.trim());
-                    let re = regex::Regex::new(r#"(\{[^}]*\}|\S+)"#).unwrap();
-                    let request: Vec<&str> = re.find_iter(command.trim())
+                    let request: Vec<&str> = SGUIL_CMD_RE.find_iter(command.trim())
                            .map(|mat| mat.as_str())
                            .collect();
-                    let command = request[0].parse::<SguilCommand>().unwrap();
+                    if request.is_empty() {
+                        warn!("Received empty command after parsing");
+                        continue;
+                    }
+                    let command = match request[0].parse::<SguilCommand>() {
+                        Ok(cmd) => cmd,
+                        Err(_) => {
+                            warn!("Unknown sguil command: {}", request[0]);
+                            continue;
+                        }
+                    };
                     let response = process_command(command, config.clone(), request, command_tx.clone()).await;
-                    if response.is_some() {
-                        let _ = command_tx.send(response.unwrap()).await;
+                    if let Some(resp) = response {
+                        let _ = command_tx.send(resp).await;
                     }
                 }
                 _ = should_stop.cancelled() => {
@@ -756,13 +820,13 @@ async fn sguil_connect(config: PcapAgentConfig) -> io::Result<TlsStream<TcpStrea
                 error!("Failed to connect to {}: {}", server_host, e);
                 error!("Sguil is down or the server provided is wrong...");
                 error!("Retrying in 15 seconds...");
-                sleep(Duration::from_secs(15));
+                tokio::time::sleep(Duration::from_secs(15)).await;
             }
         };
     }
 
     let tls_stream = preamble(stream, &config.sguil_version).await?;
-    let tls_stream = set_up_tls(tls_stream, &config.server, &config.port).await?;
+    let tls_stream = set_up_tls(tls_stream, &config).await?;
     let stream = register_agent(tls_stream, agent_type, sensor_name, sensor_net).await?;
     info!("Connected to {}", server_host);
 
@@ -792,7 +856,13 @@ async fn send_data(
     pcap_file: PathBuf,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut file = File::open(&pcap_file).await.unwrap();
+        let mut file = match File::open(&pcap_file).await {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Failed to open pcap file {:?}: {}", pcap_file, e);
+                return;
+            }
+        };
         let mut buffer = vec![0; 4096]; // 4 KB buffer
 
         while !should_stop.is_cancelled() {

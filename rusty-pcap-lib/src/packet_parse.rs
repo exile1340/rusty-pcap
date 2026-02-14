@@ -65,16 +65,16 @@ fn ipv4_parse(ip_packet: Ipv4Packet, args: &PcapFilter) -> bool {
         }
     }
 
-    // Check if packet source or destination is equal to args.src_ip
+    // Check if packet source is equal to args.src_ip
     if let Some(src_ip) = args.src_ip {
-        if src_ip != v4_packet.get_source() && src_ip != v4_packet.get_destination() {
+        if src_ip != v4_packet.get_source() {
             return false;
         }
     }
 
-    // Check if packet destination or source is equal to args.dest_ip
+    // Check if packet destination is equal to args.dest_ip
     if let Some(dest_ip) = args.dest_ip {
-        if dest_ip != v4_packet.get_destination() && dest_ip != v4_packet.get_source() {
+        if dest_ip != v4_packet.get_destination() {
             return false;
         }
     }
@@ -110,16 +110,16 @@ fn ipv6_parse(ip_packet: Ipv6Packet, args: &PcapFilter) -> bool {
         }
     }
 
-    // Check if packet source or destination is equal to args.src_ip
+    // Check if packet source is equal to args.src_ip
     if let Some(src_ip) = args.src_ip {
-        if src_ip != v6_packet.get_source() && src_ip != v6_packet.get_destination() {
+        if src_ip != v6_packet.get_source() {
             return false;
         }
     }
 
-    // Check if packet destination or source is equal to args.dest_ip
+    // Check if packet destination is equal to args.dest_ip
     if let Some(dest_ip) = args.dest_ip {
-        if dest_ip != v6_packet.get_destination() && dest_ip != v6_packet.get_source() {
+        if dest_ip != v6_packet.get_destination() {
             return false;
         }
     }
@@ -138,7 +138,10 @@ fn icmp_parse(args: &PcapFilter) -> bool {
 }
 
 fn udp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
-    let udp_packet = UdpPacket::new(v4_packet.payload()).unwrap();
+    let Some(udp_packet) = UdpPacket::new(v4_packet.payload()) else {
+        log::warn!("Failed to parse UDP packet from IPv4 payload");
+        return false;
+    };
 
     if let Some(port) = &args.port {
         if !match port.len() {
@@ -169,7 +172,10 @@ fn udp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
 }
 
 fn tcp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
-    let tcp_packet = TcpPacket::new(v4_packet.payload()).unwrap();
+    let Some(tcp_packet) = TcpPacket::new(v4_packet.payload()) else {
+        log::warn!("Failed to parse TCP packet from IPv4 payload");
+        return false;
+    };
 
     if let Some(port) = &args.port {
         match port.len() {
@@ -194,7 +200,9 @@ fn tcp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
         if src_port != tcp_packet.get_source() {
             return false;
         }
-    } else if let Some(dest_port) = args.dest_port {
+    }
+
+    if let Some(dest_port) = args.dest_port {
         if dest_port != tcp_packet.get_destination() {
             return false;
         }
@@ -204,7 +212,10 @@ fn tcp_parse(v4_packet: Ipv4Packet, args: &PcapFilter) -> bool {
 }
 
 fn udp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
-    let udp_packet = UdpPacket::new(v6_packet.payload()).unwrap();
+    let Some(udp_packet) = UdpPacket::new(v6_packet.payload()) else {
+        log::warn!("Failed to parse UDP packet from IPv6 payload");
+        return false;
+    };
 
     if let Some(port) = &args.port {
         match port.len() {
@@ -241,7 +252,10 @@ fn udp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
 }
 
 fn tcp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
-    let tcp_packet = TcpPacket::new(v6_packet.payload()).unwrap();
+    let Some(tcp_packet) = TcpPacket::new(v6_packet.payload()) else {
+        log::warn!("Failed to parse TCP packet from IPv6 payload");
+        return false;
+    };
 
     if let Some(port) = &args.port {
         match port.len() {
@@ -278,23 +292,35 @@ fn tcp6_parse(v6_packet: Ipv6Packet, args: &PcapFilter) -> bool {
 }
 
 pub fn packet_parse(pcap: &PcapPacket, args: &PcapFilter) -> bool {
-    let ethernet_packet = EthernetPacket::new(&pcap.data).unwrap();
+    let Some(ethernet_packet) = EthernetPacket::new(&pcap.data) else {
+        log::warn!("Failed to parse Ethernet packet");
+        return false;
+    };
     let eth_packet = ethernet_packet.get_ethertype();
     match eth_packet {
-        EtherTypes::Ipv4 => ipv4_parse(Ipv4Packet::new(ethernet_packet.payload()).unwrap(), args),
-        EtherTypes::Ipv6 => ipv6_parse(Ipv6Packet::new(ethernet_packet.payload()).unwrap(), args),
+        EtherTypes::Ipv4 => match Ipv4Packet::new(ethernet_packet.payload()) {
+            Some(ipv4) => ipv4_parse(ipv4, args),
+            None => false,
+        },
+        EtherTypes::Ipv6 => match Ipv6Packet::new(ethernet_packet.payload()) {
+            Some(ipv6) => ipv6_parse(ipv6, args),
+            None => false,
+        },
         EtherTypes::Vlan => {
-            // Parse the VLAN header
-            let vlan_packet = VlanPacket::new(ethernet_packet.payload()).unwrap();
+            let Some(vlan_packet) = VlanPacket::new(ethernet_packet.payload()) else {
+                return false;
+            };
             let vlan_ethertype = vlan_packet.get_ethertype();
 
             match vlan_ethertype {
-                EtherTypes::Ipv4 => {
-                    ipv4_parse(Ipv4Packet::new(vlan_packet.payload()).unwrap(), args)
-                }
-                EtherTypes::Ipv6 => {
-                    ipv6_parse(Ipv6Packet::new(vlan_packet.payload()).unwrap(), args)
-                }
+                EtherTypes::Ipv4 => match Ipv4Packet::new(vlan_packet.payload()) {
+                    Some(ipv4) => ipv4_parse(ipv4, args),
+                    None => false,
+                },
+                EtherTypes::Ipv6 => match Ipv6Packet::new(vlan_packet.payload()) {
+                    Some(ipv6) => ipv6_parse(ipv6, args),
+                    None => false,
+                },
                 _ => false,
             }
         }

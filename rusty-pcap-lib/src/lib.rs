@@ -67,25 +67,27 @@ impl fmt::Display for Config {
         writeln!(
             f,
             "Log Level: {}",
-            self.log_level.as_ref().unwrap_or(&"None".to_string())
+            self.log_level.as_deref().unwrap_or("None")
         )?;
         writeln!(
             f,
             "Pcap Directory: {}",
-            self.pcap_directory.as_ref().unwrap_or(&"None".to_string())
+            self.pcap_directory.as_deref().unwrap_or("None")
         )?;
         writeln!(
             f,
             "Output Directory: {}",
-            self.output_directory
-                .as_ref()
-                .unwrap_or(&"None".to_string())
+            self.output_directory.as_deref().unwrap_or("None")
         )?;
         writeln!(f, "Server: {}", self.enable_server.unwrap_or(false))?;
-        writeln!(f, "Search Buffer: {}", self.search_buffer.as_ref().unwrap())?;
-        writeln!(f, "Server Settings: {:?}", self.server.as_ref().unwrap())?;
+        writeln!(
+            f,
+            "Search Buffer: {}",
+            self.search_buffer.as_deref().unwrap_or("None")
+        )?;
+        writeln!(f, "Server Settings: {:?}", self.server)?;
         writeln!(f, "Enable CORS: {}", self.enable_cors)?;
-        writeln!(f, "Pcap Agent: {:?}", self.pcap_agent.as_ref().unwrap())?;
+        writeln!(f, "Pcap Agent: {:?}", self.pcap_agent)?;
         Ok(())
     }
 }
