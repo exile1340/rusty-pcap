@@ -25,7 +25,7 @@ use crate::search_pcap::parse_time_field;
 use crate::write_pcap::{filter_to_name, pcap_to_write};
 use crate::Config;
 use crate::PcapFilter;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use pcap_file::pcap::PcapReader;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::figment::Figment;
@@ -45,11 +45,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::task;
 
 // Global variable to store the start time of the server
-lazy_static! {
-    static ref START_TIME: Mutex<Instant> = Mutex::new(Instant::now());
-    static ref PCAP_RESPONSE_TIME_TOTAL: AtomicU64 = AtomicU64::new(0);
-    static ref PCAP_REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
-}
+static START_TIME: LazyLock<Mutex<Instant>> = LazyLock::new(|| Mutex::new(Instant::now()));
+static PCAP_RESPONSE_TIME_TOTAL: AtomicU64 = AtomicU64::new(0);
+static PCAP_REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
 
 // Global variable to track number of requests to the server
 static REQUEST_COUNT: AtomicU64 = AtomicU64::new(0);
