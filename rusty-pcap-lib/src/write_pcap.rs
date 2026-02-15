@@ -217,8 +217,12 @@ mod tests {
 
         #[test]
         fn panics_if_pcap_writer_cannot_be_created() {
-            // /proc exists and is_valid_path returns true, but writing files there fails
-            let temp_dir_path = "/proc";
+            // Create a temp file and use its path as a "directory" — File::create will
+            // fail because you cannot create a file inside another file. This works
+            // regardless of platform or user privileges (including root).
+            let temp_file = tempfile::NamedTempFile::new().unwrap();
+            let fake_dir_path = temp_file.path().to_str().unwrap().to_string();
+
             let args = PcapFilter {
                 timestamp: None,
                 ip: Some(vec![]),
@@ -230,9 +234,9 @@ mod tests {
                 buffer: None,
             };
 
-            // Act - should panic since /proc is a virtual filesystem that doesn't allow file creation
+            // Act - should panic since the "directory" is actually a file
             let result = std::panic::catch_unwind(|| {
-                pcap_to_write(&args, Some(temp_dir_path));
+                pcap_to_write(&args, Some(&fake_dir_path));
             });
 
             // Assert
