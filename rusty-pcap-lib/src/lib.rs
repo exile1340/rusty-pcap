@@ -21,6 +21,7 @@
 // Import necessary libraries and modules
 #![allow(clippy::blocks_in_conditions)]
 pub mod api_server;
+pub mod cert_gen;
 pub mod cli;
 pub mod input_validation;
 pub mod packet_parse;
@@ -98,6 +99,11 @@ pub struct RocketConfig {
     pub port: Option<u16>,
     pub key: Option<String>,
     pub cert: Option<String>,
+    pub ca_cert: Option<String>,
+    pub enable_mtls: Option<bool>,
+    pub mtls_mandatory: Option<bool>,
+    pub generate_certs: Option<bool>,
+    pub certs_dir: Option<String>,
 }
 
 // Define a struct PcapFilter with the derive traits for form handling, serialization, deserialization, comparison, and debugging

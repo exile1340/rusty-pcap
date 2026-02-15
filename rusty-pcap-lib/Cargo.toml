@@ -15,7 +15,9 @@ log = "0.4.29"
 env_logger = "0.11.9"
 toml = "0.8"
 regex = "1.12"
-rocket = { version = "0.5.1", features = ["json", "tls"] }
+rocket = { version = "0.5.1", features = ["json", "tls", "mtls"] }
+rcgen = { version = "0.13", features = ["x509-parser"] }
+time = "0.3"
 tokio = { version = "1.49", features = ["full"] }
 tempfile = "3.25"
 rocket_cors = "0.6.0"

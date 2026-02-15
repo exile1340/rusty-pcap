@@ -238,29 +238,71 @@ fn status() -> String {
 pub fn rocket(config: crate::Config) -> rocket::Rocket<rocket::Build> {
     let mut figment = Figment::from(rocket::Config::figment());
 
-    // if Cert and Key are set, use TLS
-    if let (Some(cert), Some(key)) = (
-        config.server.as_ref().unwrap().cert.as_ref(),
-        config.server.as_ref().unwrap().key.as_ref(),
-    ) {
+    let server_config = config.server.as_ref().unwrap();
+
+    // Configure TLS if cert and key are set
+    if let (Some(cert), Some(key)) = (server_config.cert.as_ref(), server_config.key.as_ref()) {
+        log::info!("TLS enabled for API server");
+        log::info!("  Server certificate: {}", cert);
+        log::info!("  Server private key: {}", key);
         figment = figment.merge(("tls.certs", cert)).merge(("tls.key", key));
+
+        // Configure mutual TLS if enabled
+        let mtls_enabled = server_config.enable_mtls.unwrap_or(false);
+        if mtls_enabled {
+            if let Some(ca_cert) = server_config.ca_cert.as_ref() {
+                let mandatory = server_config.mtls_mandatory.unwrap_or(false);
+                log::info!("Mutual TLS (mTLS) enabled for API server");
+                log::info!("  CA certificate: {}", ca_cert);
+                log::info!(
+                    "  Client certificate required: {}",
+                    if mandatory { "yes" } else { "no (optional)" }
+                );
+                if !mandatory {
+                    log::info!(
+                        "  Clients without certificates can still connect (non-mandatory mode)"
+                    );
+                    log::info!(
+                        "  This allows legacy clients (e.g., Sguil) to connect without mTLS"
+                    );
+                }
+                figment = figment
+                    .merge(("tls.mutual.ca_certs", ca_cert))
+                    .merge(("tls.mutual.mandatory", mandatory));
+            } else {
+                log::warn!(
+                    "mTLS is enabled but no CA certificate (ca_cert) is configured - mTLS will not be active"
+                );
+                log::warn!(
+                    "Set 'ca_cert' in [server] config to the path of the CA certificate PEM file"
+                );
+            }
+        } else {
+            log::info!("Mutual TLS (mTLS) is disabled - standard TLS only");
+            log::info!(
+                "  Set 'enable_mtls = true' in [server] config to enable client certificate authentication"
+            );
+        }
     } else {
-        log::warn!("Cert or Key not set in config.toml, defaulting to http");
+        log::warn!("TLS certificate or key not set in config, defaulting to HTTP (unencrypted)");
+        log::warn!(
+            "  Set 'cert' and 'key' in [server] config, or enable 'generate_certs' for auto-generation"
+        );
     }
 
-    if let Some(address) = &config.server.as_ref().unwrap().address {
+    if let Some(address) = &server_config.address {
         figment = figment.merge(("address", address));
     } else {
-        log::warn!("address not set in config.toml, defaulting to 127.0.0.1");
+        log::warn!("Server address not set in config, defaulting to 127.0.0.1");
     }
 
-    if let Some(port) = config.server.as_ref().unwrap().port {
+    if let Some(port) = server_config.port {
         figment = figment.merge(("port", port));
     } else {
-        log::warn!("Port not set in config.toml, defaulting to port 8000");
+        log::warn!("Server port not set in config, defaulting to port 8000");
     }
 
-    log::info!("Cors is {}", config.enable_cors);
+    log::info!("CORS enabled: {}", config.enable_cors);
     let cors = if config.enable_cors {
         CorsOptions {
             // Allow all origins

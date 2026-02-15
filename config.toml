@@ -29,7 +29,21 @@ enable_cors = true
 address = "0.0.0.0"
 port = 8000
 #key = "server.key"  # Path or bytes to DER-encoded ASN.1 PKCS#1/#8 or SEC1 key.
-#cert = "server.crt" # Path or bytes to DER-encoded X.509 TLS cert chain.]
+#cert = "server.crt" # Path or bytes to DER-encoded X.509 TLS cert chain.
+
+# Mutual TLS (mTLS) settings
+# When enabled, clients must present a valid certificate signed by the CA.
+# Set enable_mtls = true and configure ca_cert to activate.
+# Set mtls_mandatory = false to allow legacy clients without certificates (e.g., Sguil).
+#enable_mtls = false           # Enable mutual TLS client authentication
+#ca_cert = "certs/ca.pem"      # Path to CA certificate for verifying client certs
+#mtls_mandatory = false        # If true, clients MUST present a certificate; if false, it's optional
+
+# Certificate auto-generation
+# When enabled, the application will generate a CA, server, and client certificate
+# on startup if they do not already exist. Existing certificates are never overwritten.
+#generate_certs = false        # Auto-generate certificates if they don't exist
+#certs_dir = "certs"           # Directory where generated certificates are stored
 
 [pcap_agent]
 enable = true

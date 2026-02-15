@@ -16,7 +16,8 @@
 
 // Import required modules
 use rusty_pcap_lib::{
-    api_server, cli::run_cli_search, ensure_dir_exists, pcap_agent, read_config, Cli, PcapFilter,
+    api_server, cert_gen, cli::run_cli_search, ensure_dir_exists, pcap_agent, read_config, Cli,
+    PcapFilter,
 };
 use clap::Parser;
 
@@ -43,21 +44,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(local_settings) = read_config("config.local.toml") {
         if let Some(local_server_settings) = local_settings.server {
             if let Some(ref mut server_config) = config.server {
-                // Update address
                 if let Some(address) = local_server_settings.address {
                     server_config.address = Some(address);
                 }
-                // Update port
                 if let Some(port) = local_server_settings.port {
                     server_config.port = Some(port);
                 }
-                // Update cert
                 if let Some(cert) = local_server_settings.cert {
                     server_config.cert = Some(cert);
                 }
-                // Update key
                 if let Some(key) = local_server_settings.key {
                     server_config.key = Some(key);
+                }
+                if let Some(ca_cert) = local_server_settings.ca_cert {
+                    server_config.ca_cert = Some(ca_cert);
+                }
+                if let Some(enable_mtls) = local_server_settings.enable_mtls {
+                    server_config.enable_mtls = Some(enable_mtls);
+                }
+                if let Some(mtls_mandatory) = local_server_settings.mtls_mandatory {
+                    server_config.mtls_mandatory = Some(mtls_mandatory);
+                }
+                if let Some(generate_certs) = local_server_settings.generate_certs {
+                    server_config.generate_certs = Some(generate_certs);
+                }
+                if let Some(certs_dir) = local_server_settings.certs_dir {
+                    server_config.certs_dir = Some(certs_dir);
                 }
             }
         }
@@ -112,6 +124,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     log::debug!("Config: \n{}", &config);
+
+    // Handle certificate generation if enabled
+    if run_server {
+        if let Some(ref mut server_config) = config.server {
+            let generate_certs = server_config.generate_certs.unwrap_or(false);
+            if generate_certs {
+                let certs_dir = server_config
+                    .certs_dir
+                    .clone()
+                    .unwrap_or_else(|| "certs".to_string());
+
+                // Collect server SANs from the configured address
+                let mut sans: Vec<String> =
+                    vec!["localhost".to_string(), "127.0.0.1".to_string()];
+                if let Some(ref addr) = server_config.address {
+                    if addr != "localhost" && addr != "127.0.0.1" && !sans.contains(addr) {
+                        sans.push(addr.clone());
+                    }
+                }
+
+                log::info!("Certificate auto-generation is enabled");
+                log::info!("  Certificates directory: {}", certs_dir);
+                log::info!("  Server SANs: {:?}", sans);
+
+                match cert_gen::ensure_certificates(&certs_dir, &sans) {
+                    Ok(paths) => {
+                        // Auto-configure TLS paths if not already set
+                        if server_config.cert.is_none() {
+                            log::info!(
+                                "Auto-configuring server cert path: {}",
+                                paths.server_cert
+                            );
+                            server_config.cert = Some(paths.server_cert);
+                        }
+                        if server_config.key.is_none() {
+                            log::info!(
+                                "Auto-configuring server key path: {}",
+                                paths.server_key
+                            );
+                            server_config.key = Some(paths.server_key);
+                        }
+                        if server_config.ca_cert.is_none()
+                            && server_config.enable_mtls.unwrap_or(false)
+                        {
+                            log::info!(
+                                "Auto-configuring CA cert path for mTLS: {}",
+                                paths.ca_cert
+                            );
+                            server_config.ca_cert = Some(paths.ca_cert.clone());
+                        }
+
+                        log::info!("Certificate generation/verification complete");
+                        log::info!(
+                            "  Client cert for connecting: {}",
+                            paths.client_cert
+                        );
+                        log::info!(
+                            "  Client key for connecting:  {}",
+                            paths.client_key
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("Failed to generate certificates: {}", e);
+                        log::error!(
+                            "The server will attempt to start without auto-generated certificates"
+                        );
+                    }
+                }
+            } else {
+                log::debug!("Certificate auto-generation is disabled");
+                log::debug!(
+                    "  Set 'generate_certs = true' in [server] config to enable"
+                );
+            }
+        }
+    }
 
     let mut tasks = Vec::new();
 
